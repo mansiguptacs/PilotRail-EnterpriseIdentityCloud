@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+"""One-time login banner after IT push deploy."""
+import json
+import sys
+from pathlib import Path
+
+PILOT_HOME = Path.home() / ".pilot-rail"
+INSTALLED = PILOT_HOME / "installed.json"
+SHOWN = PILOT_HOME / ".notice_shown"
+
+BLUE = "\033[94m"
+RESET = "\033[0m"
+
+
+def main() -> None:
+    if not INSTALLED.exists() or SHOWN.exists():
+        return
+    data = json.loads(INSTALLED.read_text())
+    deployed_by = data.get("deployed_by", "IT-ADMIN")
+    deployed_at = data.get("deployed_at", "")
+    control = data.get("control_plane", "")
+    banner = f"""
+{BLUE}╔══════════════════════════════════════════════════════╗
+║  PILOT RAIL — IT deployed apply gate to this host    ║
+║  Deployed by: {deployed_by:<39} ║
+║  At: {deployed_at:<46} ║
+║  terraform apply is now governed.                      ║
+╚══════════════════════════════════════════════════════╝{RESET}
+Control plane: {control}
+"""
+    print(banner)
+    SHOWN.touch()
+
+
+if __name__ == "__main__":
+    main()

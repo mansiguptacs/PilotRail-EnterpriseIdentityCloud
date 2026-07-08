@@ -71,3 +71,40 @@ export interface ConnectorHealth {
   last_checked: string;
   message: string;
 }
+
+export type WorkstationState =
+  | "PENDING_PUSH"
+  | "DEPLOYING"
+  | "DEPLOYED"
+  | "FAILED"
+  | "REVOKED";
+
+export type AgentStatus = "NOT_DEPLOYED" | "ONLINE" | "STALE" | "OFFLINE";
+
+export interface Workstation {
+  id: string;
+  ip: string;
+  hostname: string;
+  vm_name: string;
+  ssh_user: string;
+  state: WorkstationState;
+  agent_status: AgentStatus;
+  last_seen_at: string | null;
+  shim_version: string;
+  gate_active: boolean;
+  terraform_path: string;
+  deployed_by: string | null;
+  deployed_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DiscoveredVM {
+  vm_name: string;
+  ip: string;
+  state: string;
+  workstation_id: string | null;
+  agent_status: AgentStatus;
+  deploy_state: WorkstationState;
+}

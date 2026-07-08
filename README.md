@@ -96,6 +96,51 @@ When a change is blocked, the terminal **never waits** for a human:
 
 Rejected plans fail fast on re-apply with the reviewer's reason. Approved plans proceed to real `terraform apply`.
 
+## Enterprise VM Demo (IT agent push)
+
+Simulate a managed developer workstation with Multipass on the same machine.
+
+### Setup
+
+```bash
+# One-time: install Multipass + launch blank VM (minimal: 1 CPU, 1G RAM, 5G disk)
+sudo snap install multipass
+bash scripts/provision-dev-vm.sh
+# Optional overrides: VM_CPUS=1 VM_MEMORY=512M VM_DISK=4G bash scripts/provision-dev-vm.sh
+
+# Host: start control plane (bind all interfaces for VM access)
+cd backend && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+cd frontend && npm run dev
+```
+
+### VM operations
+
+```bash
+bash scripts/vm-ops.sh start      # boot VM
+bash scripts/vm-ops.sh shell      # developer terminal
+bash scripts/vm-ops.sh agent-log  # tail IT deploy notifications
+bash scripts/vm-ops.sh ip         # VM IP for dashboard
+```
+
+### Interview flow (two panes)
+
+| Pane | Content |
+|------|---------|
+| Browser | Workstations tab — fleet view + one-click Deploy Gate |
+| Terminal | `multipass shell pilot-dev` + optional `vm-ops.sh agent-log` |
+
+**Scene A — IT pushes agent**
+1. Workstations tab shows discovered `pilot-dev` VM (NOT_DEPLOYED)
+2. Click **Deploy Gate** (one click) as SEC
+3. VM shows notification in agent log + shell banner
+4. `which terraform` → `~/.pilot-rail/shim/terraform`
+
+**Scene B — Terraform intercept**
+1. In VM: `cd ~/demo-workspace && cp scenarios/risky_contractor_admin.tf main.tf`
+2. `terraform apply` → fail fast → approve in dashboard → re-run apply
+
+**Talk track:** "Security pushes the sanctioned wrapper like Intune/SCCM — fleet observability shows agent online/offline."
+
 ## Live Demo Script (for interview)
 
 **Setup:** Backend on :8000, frontend on :5173, gate enabled via `source scripts/enable-gate.sh`. Two windows: Cursor (`demo-workspace`) + browser (dashboard at :5173).
@@ -156,7 +201,11 @@ Approve if routed to review. Audit log shows `AUTO_APPROVE`, `NOTIFY_APPROVER`, 
 ├── scripts/
 │   ├── install-terraform.sh  # Download terraform to backend/bin/
 │   ├── enable-gate.sh        # Enable shim + verify backend (source this)
+│   ├── provision-dev-vm.sh   # Launch Multipass pilot-dev VM
+│   ├── vm-ops.sh             # start/stop/shell/ip/agent-log
+│   ├── host-api-url.sh       # Host IP reachable from VM
 │   └── demo-risky.sh         # Fail-fast risky scenario helper
+├── cli/agent/                # pilot-rail-agent, remote-install.sh
 └── cli/README.md         # Shim setup, env vars, and demo commands
 ```
 
@@ -169,5 +218,10 @@ Approve if routed to review. Audit log shows `AUTO_APPROVE`, `NOTIFY_APPROVER`, 
 | `POST` | `/api/plans/{id}/approve` | Approve (separation of duties enforced) |
 | `POST` | `/api/plans/{id}/reject` | Reject with comment |
 | `GET` | `/api/notifications` | Mock notification feed |
+| `GET` | `/api/workstations` | Fleet list with agent status |
+| `GET` | `/api/workstations/discover` | Discover running Multipass VMs |
+| `POST` | `/api/workstations/push` | IT admin one-click shim deploy |
+| `POST` | `/api/workstations/{id}/heartbeat` | Agent heartbeat |
+| `POST` | `/api/workstations/{id}/revoke` | Revoke gate on workstation |
 | `GET` | `/api/audit` | Audit log |
 | `GET` | `/api/connectors/health` | Connector health strip |

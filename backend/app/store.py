@@ -5,12 +5,29 @@ from typing import Optional
 
 from app.context_packet import build_context_packet, utc_now
 from app.fingerprint import compute_code_fingerprint
-from app.models import AuditEntry, Notification, Plan, PlanState, PilotGuidance
+from datetime import datetime, timezone
+
+from app.models import (
+    AgentStatus,
+    AuditEntry,
+    Notification,
+    Plan,
+    PlanState,
+    PilotGuidance,
+    Workstation,
+    WorkstationNotification,
+    WorkstationState,
+)
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 PLANS_FILE = DATA_DIR / "plans.json"
 AUDIT_FILE = DATA_DIR / "audit_log.json"
 NOTIFICATIONS_FILE = DATA_DIR / "notifications.json"
+WORKSTATIONS_FILE = DATA_DIR / "workstations.json"
+WORKSTATION_NOTIFICATIONS_FILE = DATA_DIR / "workstation_notifications.json"
+
+STALE_SECONDS = 60
+OFFLINE_SECONDS = 300
 
 
 def _ensure_data_dir() -> None:
@@ -267,3 +284,175 @@ def list_notifications(recipient: Optional[str] = None) -> list[Notification]:
             or n.recipient == "@security-team"
         ]
     return notifications
+
+
+def _parse_ts(ts: Optional[str]) -> Optional[datetime]:
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def compute_agent_status(
+    deploy_state: WorkstationState,
+    last_seen_at: Optional[str],
+) -> AgentStatus:
+    if deploy_state in (WorkstationState.PENDING_PUSH, WorkstationState.REVOKED):
+        return AgentStatus.NOT_DEPLOYED
+    if deploy_state == WorkstationState.FAILED:
+        return AgentStatus.OFFLINE
+    if deploy_state == WorkstationState.DEPLOYING:
+        return AgentStatus.NOT_DEPLOYED
+    if not last_seen_at:
+        return AgentStatus.OFFLINE
+    seen = _parse_ts(last_seen_at)
+    if not seen:
+        return AgentStatus.OFFLINE
+    now = datetime.now(timezone.utc)
+    if seen.tzinfo is None:
+        seen = seen.replace(tzinfo=timezone.utc)
+    age = (now - seen).total_seconds()
+    if age <= STALE_SECONDS:
+        return AgentStatus.ONLINE
+    if age <= OFFLINE_SECONDS:
+        return AgentStatus.STALE
+    return AgentStatus.OFFLINE
+
+
+def list_workstations() -> list[Workstation]:
+    raw = _read_json(WORKSTATIONS_FILE, [])
+    result = []
+    for item in raw:
+        try:
+            ws = Workstation.model_validate(item)
+            ws = ws.model_copy(
+                update={
+                    "agent_status": compute_agent_status(ws.state, ws.last_seen_at)
+                }
+            )
+            result.append(ws)
+        except Exception:
+            continue
+    return result
+
+
+def get_workstation(workstation_id: str) -> Optional[Workstation]:
+    for ws in list_workstations():
+        if ws.id == workstation_id:
+            return ws
+    return None
+
+
+def find_workstation_by_ip_or_name(ip: str = "", vm_name: str = "") -> Optional[Workstation]:
+    for ws in list_workstations():
+        if ip and ws.ip == ip:
+            return ws
+        if vm_name and ws.vm_name == vm_name:
+            return ws
+    return None
+
+
+def upsert_workstation(workstation: Workstation) -> Workstation:
+    workstations = _read_json(WORKSTATIONS_FILE, [])
+    data = workstation.model_dump(mode="json")
+    found = False
+    for i, item in enumerate(workstations):
+        if item.get("id") == workstation.id:
+            workstations[i] = data
+            found = True
+            break
+    if not found:
+        workstations.insert(0, data)
+    _write_json(WORKSTATIONS_FILE, workstations)
+    return workstation
+
+
+def create_workstation(
+    ip: str,
+    vm_name: str = "",
+    hostname: str = "",
+    ssh_user: str = "ubuntu",
+) -> Workstation:
+    now = utc_now()
+    existing = find_workstation_by_ip_or_name(ip=ip, vm_name=vm_name)
+    if existing:
+        return existing
+    ws = Workstation(
+        id=str(uuid.uuid4()),
+        ip=ip,
+        hostname=hostname or vm_name,
+        vm_name=vm_name,
+        ssh_user=ssh_user,
+        state=WorkstationState.PENDING_PUSH,
+        agent_status=AgentStatus.NOT_DEPLOYED,
+        created_at=now,
+        updated_at=now,
+    )
+    return upsert_workstation(ws)
+
+
+def update_workstation(workstation_id: str, **fields) -> Workstation:
+    ws = get_workstation(workstation_id)
+    if not ws:
+        raise KeyError(f"Workstation {workstation_id} not found")
+    fields["updated_at"] = utc_now()
+    if "state" in fields or "last_seen_at" in fields:
+        state = fields.get("state", ws.state)
+        last_seen = fields.get("last_seen_at", ws.last_seen_at)
+        fields["agent_status"] = compute_agent_status(state, last_seen)
+    updated = ws.model_copy(update=fields)
+    return upsert_workstation(updated)
+
+
+def save_workstation_notification(
+    workstation_id: str,
+    message: str,
+    event_type: str = "NOTIFY_WORKSTATION",
+) -> WorkstationNotification:
+    notification = WorkstationNotification(
+        id=str(uuid.uuid4()),
+        workstation_id=workstation_id,
+        message=message,
+        event_type=event_type,
+        read=False,
+        timestamp=utc_now(),
+    )
+    entries = list_workstation_notifications(workstation_id)
+    entries.insert(0, notification)
+    all_entries = list_workstation_notifications()
+    all_entries = [n for n in all_entries if n.workstation_id != workstation_id]
+    all_entries = entries + all_entries
+    _write_json(
+        WORKSTATION_NOTIFICATIONS_FILE,
+        [n.model_dump(mode="json") for n in all_entries],
+    )
+    return notification
+
+
+def list_workstation_notifications(
+    workstation_id: Optional[str] = None,
+    unread_only: bool = False,
+) -> list[WorkstationNotification]:
+    raw = _read_json(WORKSTATION_NOTIFICATIONS_FILE, [])
+    notifications = [WorkstationNotification.model_validate(item) for item in raw]
+    if workstation_id:
+        notifications = [n for n in notifications if n.workstation_id == workstation_id]
+    if unread_only:
+        notifications = [n for n in notifications if not n.read]
+    return notifications
+
+
+def mark_workstation_notifications_read(workstation_id: str) -> None:
+    notifications = list_workstation_notifications()
+    updated = []
+    for n in notifications:
+        if n.workstation_id == workstation_id:
+            updated.append(n.model_copy(update={"read": True}))
+        else:
+            updated.append(n)
+    _write_json(
+        WORKSTATION_NOTIFICATIONS_FILE,
+        [n.model_dump(mode="json") for n in updated],
+    )

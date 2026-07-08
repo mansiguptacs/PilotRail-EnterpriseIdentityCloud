@@ -13,6 +13,10 @@ dist/
 backend/data/plans.json
 backend/data/audit_log.json
 backend/data/notifications.json
+backend/data/workstations.json
+backend/data/workstation_notifications.json
+demo-vm/keys/
+demo-vm/staging/
 
 # Terraform binary (downloaded locally)
 backend/bin/terraform

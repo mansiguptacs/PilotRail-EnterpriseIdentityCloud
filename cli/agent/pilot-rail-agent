@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""Pilot Rail workstation agent — heartbeats and IT notifications."""
+from __future__ import annotations
+
+import json
+import os
+import socket
+import sys
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+
+PILOT_HOME = Path(os.getenv("PILOT_HOME", Path.home() / ".pilot-rail"))
+CONFIG_FILE = PILOT_HOME / "config.env"
+AGENT_LOG = PILOT_HOME / "agent.log"
+AGENT_VERSION = "0.1.0"
+SHIM_VERSION = "0.1.0"
+HEARTBEAT_INTERVAL = 30
+POLL_INTERVAL = 5
+
+
+def load_config() -> dict[str, str]:
+    config: dict[str, str] = {}
+    if CONFIG_FILE.exists():
+        for line in CONFIG_FILE.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("export "):
+                line = line[7:]
+            if "=" in line:
+                key, _, val = line.partition("=")
+                config[key.strip()] = val.strip().strip('"')
+    config.setdefault("PILOT_API_BASE", os.getenv("PILOT_API_BASE", "http://127.0.0.1:8000/api"))
+    config.setdefault("PILOT_WORKSTATION_ID", os.getenv("PILOT_WORKSTATION_ID", ""))
+    return config
+
+
+def log(msg: str, level: str = "INFO") -> None:
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    line = f"{ts} [{level}] {msg}\n"
+    AGENT_LOG.parent.mkdir(parents=True, exist_ok=True)
+    with AGENT_LOG.open("a", encoding="utf-8") as f:
+        f.write(line)
+
+
+def http_json(method: str, url: str, payload: dict | None = None) -> dict | list:
+    data = json.dumps(payload).encode() if payload is not None else None
+    req = urllib.request.Request(
+        url,
+        data=data,
+        method=method,
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return json.loads(resp.read().decode())
+
+
+def send_heartbeat(api_base: str, workstation_id: str) -> None:
+    shim = str(PILOT_HOME / "shim" / "terraform")
+    payload = {
+        "shim_version": SHIM_VERSION,
+        "agent_version": AGENT_VERSION,
+        "gate_active": Path(shim).exists(),
+        "hostname": socket.gethostname(),
+        "terraform_path": shim,
+    }
+    http_json("POST", f"{api_base}/workstations/{workstation_id}/heartbeat", payload)
+
+
+def poll_notifications(api_base: str, workstation_id: str, seen: set[str]) -> None:
+    try:
+        notes = http_json("GET", f"{api_base}/workstations/{workstation_id}/notifications?unread_only=true")
+    except urllib.error.HTTPError:
+        return
+    if not isinstance(notes, list):
+        return
+    for note in notes:
+        nid = note.get("id", "")
+        if not nid or nid in seen:
+            continue
+        seen.add(nid)
+        message = note.get("message", "")
+        log(message, "NOTICE")
+        pending = PILOT_HOME / "pending-notice.txt"
+        with pending.open("a", encoding="utf-8") as f:
+            f.write(f"[pilot-rail] {message}\n")
+
+
+def main() -> int:
+    config = load_config()
+    api_base = config["PILOT_API_BASE"].rstrip("/")
+    workstation_id = config["PILOT_WORKSTATION_ID"]
+    if not workstation_id:
+        log("PILOT_WORKSTATION_ID not set — agent cannot start", "ERROR")
+        return 1
+
+    log(f"Agent started — workstation {workstation_id[:8]}...")
+    seen: set[str] = set()
+    last_heartbeat = 0.0
+
+    while True:
+        now = time.time()
+        if now - last_heartbeat >= HEARTBEAT_INTERVAL:
+            try:
+                send_heartbeat(api_base, workstation_id)
+                last_heartbeat = now
+            except Exception as exc:
+                log(f"Heartbeat failed: {exc}", "WARN")
+        try:
+            poll_notifications(api_base, workstation_id, seen)
+        except Exception as exc:
+            log(f"Notification poll failed: {exc}", "WARN")
+        time.sleep(POLL_INTERVAL)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        log("Agent stopped")
+        sys.exit(0)

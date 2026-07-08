@@ -2,22 +2,25 @@ import { useCallback, useEffect, useState } from "react";
 import {
   approvePlan,
   createPlan,
+  discoverWorkstations,
   fetchAuditLog,
   fetchConnectorHealth,
   fetchNotifications,
   fetchPlans,
+  fetchWorkstations,
   rejectPlan,
 } from "./api";
-import type { AuditEntry, ConnectorHealth, Notification, Plan } from "./types";
+import type { AuditEntry, ConnectorHealth, DiscoveredVM, Notification, Plan, Workstation } from "./types";
 import AuditLog from "./components/AuditLog";
 import ConnectorHealthStrip from "./components/ConnectorHealthStrip";
 import NotificationFeed from "./components/NotificationFeed";
 import PilotRail from "./components/PilotRail";
 import PlanQueue from "./components/PlanQueue";
 import PromptBar from "./components/PromptBar";
+import WorkstationFleet from "./components/WorkstationFleet";
 import "./App.css";
 
-type Tab = "dashboard" | "notifications" | "audit";
+type Tab = "dashboard" | "workstations" | "notifications" | "audit";
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("dashboard");
@@ -26,25 +29,33 @@ export default function App() {
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [connectors, setConnectors] = useState<ConnectorHealth[]>([]);
+  const [workstations, setWorkstations] = useState<Workstation[]>([]);
+  const [discovered, setDiscovered] = useState<DiscoveredVM[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const selectedPlan = plans.find((p) => p.id === selectedId) ?? null;
   const pendingCount = plans.filter((p) => p.state === "PENDING_REVIEW").length;
+  const onlineAgents = workstations.filter((w) => w.agent_status === "ONLINE").length;
 
   const refresh = useCallback(async () => {
     try {
-      const [plansData, auditData, connectorData, notificationData] = await Promise.all([
-        fetchPlans(),
-        fetchAuditLog(),
-        fetchConnectorHealth(),
-        fetchNotifications(),
-      ]);
+      const [plansData, auditData, connectorData, notificationData, wsData, discData] =
+        await Promise.all([
+          fetchPlans(),
+          fetchAuditLog(),
+          fetchConnectorHealth(),
+          fetchNotifications(),
+          fetchWorkstations(),
+          discoverWorkstations(),
+        ]);
       setPlans(plansData);
       setAuditEntries(auditData);
       setConnectors(connectorData);
       setNotifications(notificationData);
+      setWorkstations(wsData);
+      setDiscovered(discData);
       if (selectedId && !plansData.find((p) => p.id === selectedId)) {
         setSelectedId(plansData[0]?.id ?? null);
       }
@@ -119,6 +130,13 @@ export default function App() {
           {pendingCount > 0 && <span className="tab-badge">{pendingCount}</span>}
         </button>
         <button
+          className={`tab ${tab === "workstations" ? "active" : ""}`}
+          onClick={() => setTab("workstations")}
+        >
+          Workstations
+          {onlineAgents > 0 && <span className="tab-badge">{onlineAgents}</span>}
+        </button>
+        <button
           className={`tab ${tab === "notifications" ? "active" : ""}`}
           onClick={() => setTab("notifications")}
         >
@@ -166,11 +184,17 @@ export default function App() {
                 />
               ) : (
                 <div className="empty-state">
-                  Select a plan from the queue. Dev runs terraform apply in demo-workspace.
+                  Select a plan from the queue. Dev runs terraform apply in the VM.
                 </div>
               )}
             </div>
           </div>
+        ) : tab === "workstations" ? (
+          <WorkstationFleet
+            workstations={workstations}
+            discovered={discovered}
+            onRefresh={refresh}
+          />
         ) : tab === "notifications" ? (
           <NotificationFeed notifications={notifications} />
         ) : (

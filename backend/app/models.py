@@ -133,3 +133,80 @@ class ConnectorHealth(BaseModel):
     status: str
     last_checked: str
     message: str
+
+
+class WorkstationState(str, Enum):
+    PENDING_PUSH = "PENDING_PUSH"
+    DEPLOYING = "DEPLOYING"
+    DEPLOYED = "DEPLOYED"
+    FAILED = "FAILED"
+    REVOKED = "REVOKED"
+
+
+class AgentStatus(str, Enum):
+    NOT_DEPLOYED = "NOT_DEPLOYED"
+    ONLINE = "ONLINE"
+    STALE = "STALE"
+    OFFLINE = "OFFLINE"
+
+
+class Workstation(BaseModel):
+    id: str
+    ip: str
+    hostname: str = ""
+    vm_name: str = ""
+    ssh_user: str = "ubuntu"
+    state: WorkstationState = WorkstationState.PENDING_PUSH
+    agent_status: AgentStatus = AgentStatus.NOT_DEPLOYED
+    last_seen_at: Optional[str] = None
+    shim_version: str = ""
+    gate_active: bool = False
+    terraform_path: str = ""
+    deployed_by: Optional[str] = None
+    deployed_at: Optional[str] = None
+    last_error: Optional[str] = None
+    created_at: str
+    updated_at: str
+
+
+class WorkstationNotification(BaseModel):
+    id: str
+    workstation_id: str
+    message: str
+    event_type: str
+    read: bool = False
+    timestamp: str
+
+
+class DiscoveredVM(BaseModel):
+    vm_name: str
+    ip: str
+    state: str
+    workstation_id: Optional[str] = None
+    agent_status: AgentStatus = AgentStatus.NOT_DEPLOYED
+    deploy_state: WorkstationState = WorkstationState.PENDING_PUSH
+
+
+class PushWorkstationRequest(BaseModel):
+    ip: str = ""
+    vm_name: str = ""
+    ssh_user: str = "ubuntu"
+    reviewer_initials: str = Field(..., min_length=1)
+
+    @model_validator(mode="after")
+    def require_target(self):
+        if not self.ip and not self.vm_name:
+            raise ValueError("Either ip or vm_name must be provided")
+        return self
+
+
+class HeartbeatRequest(BaseModel):
+    shim_version: str = "0.1.0"
+    agent_version: str = "0.1.0"
+    gate_active: bool = True
+    hostname: str = ""
+    terraform_path: str = ""
+
+
+class RevokeWorkstationRequest(BaseModel):
+    reviewer_initials: str = Field(..., min_length=1)

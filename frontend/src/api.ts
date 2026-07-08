@@ -1,4 +1,11 @@
-import type { AuditEntry, ConnectorHealth, Notification, Plan } from "./types";
+import type {
+  AuditEntry,
+  ConnectorHealth,
+  DiscoveredVM,
+  Notification,
+  Plan,
+  Workstation,
+} from "./types";
 
 const API_BASE = "http://localhost:8000/api";
 
@@ -57,4 +64,34 @@ export function fetchConnectorHealth(): Promise<ConnectorHealth[]> {
 
 export function fetchNotifications(): Promise<Notification[]> {
   return request<Notification[]>("/notifications");
+}
+
+export function fetchWorkstations(): Promise<Workstation[]> {
+  return request<Workstation[]>("/workstations");
+}
+
+export function discoverWorkstations(): Promise<DiscoveredVM[]> {
+  return request<DiscoveredVM[]>("/workstations/discover");
+}
+
+export function pushWorkstation(payload: {
+  ip?: string;
+  vm_name?: string;
+  ssh_user?: string;
+  reviewer_initials: string;
+}): Promise<Workstation> {
+  return request<Workstation>("/workstations/push", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function revokeWorkstation(
+  id: string,
+  reviewer_initials: string
+): Promise<Workstation> {
+  return request<Workstation>(`/workstations/${id}/revoke`, {
+    method: "POST",
+    body: JSON.stringify({ reviewer_initials }),
+  });
 }
