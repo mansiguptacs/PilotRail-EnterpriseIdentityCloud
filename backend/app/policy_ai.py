@@ -5,6 +5,7 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from app.grok_status import record_grok_failure, record_grok_success
 from app.llm_client import get_chat_llm, model_label
 from app.models import PilotGuidance, PolicyFinding
 
@@ -109,12 +110,14 @@ Rule engine findings (do not duplicate these):
         parsed = _parse_review_response(response.content)
     except json.JSONDecodeError as exc:
         logger.warning("AI policy review returned invalid JSON: %s", exc)
+        record_grok_failure("invalid JSON response")
         return [], _fallback_guidance(
             rule_findings,
             ai_note="Grok response could not be parsed — rule engine enforcement still active.",
         ), "ai_unavailable"
     except Exception as exc:
         logger.warning("AI policy review failed: %s", exc)
+        record_grok_failure(str(exc))
         return [], _fallback_guidance(rule_findings, ai_note=_ai_unavailable_note(exc)), "ai_unavailable"
 
     ai_findings: list[PolicyFinding] = []
@@ -141,6 +144,7 @@ Rule engine findings (do not duplicate these):
     )
     if not guidance.developer_hint:
         guidance.developer_hint = _developer_hint_from_findings(rule_findings + ai_findings)
+    record_grok_success()
     return ai_findings, guidance, model_label()
 
 

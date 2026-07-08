@@ -8,7 +8,8 @@ from typing import Literal
 import httpx
 
 from app.context_packet import utc_now
-from app.llm_client import XAI_API_BASE, xai_api_key, xai_model
+from app.grok_status import grok_runtime_status
+from app.llm_client import xai_api_key, xai_model
 from app.models import ConnectorHealth
 from app.policy_engine import _load_rules
 
@@ -17,7 +18,6 @@ Status = Literal["healthy", "degraded", "down"]
 _cache: dict[str, tuple[float, ConnectorHealth]] = {}
 CACHE_TTL_SECONDS = 30
 DEGRADED_LATENCY_MS = 2000
-GROK_SLOW_MS = 5000
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 TERRAFORM_BIN = REPO_ROOT / "backend" / "bin" / "terraform"
@@ -129,68 +129,16 @@ def _check_grok_ai() -> ConnectorHealth:
             message="Optional — set XAI_API_KEY in backend/.env for AI review",
         )
 
-    headers = {"Authorization": f"Bearer {api_key}"}
-    start = time.monotonic()
-    try:
-        with httpx.Client(timeout=15.0) as client:
-            chat_response = client.post(
-                f"{XAI_API_BASE}/chat/completions",
-                headers={**headers, "Content-Type": "application/json"},
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": "ping"}],
-                    "max_tokens": 1,
-                },
-            )
-        elapsed_ms = int((time.monotonic() - start) * 1000)
+    status, message = grok_runtime_status()
+    if status == "healthy" and "Configured" in message:
+        message = f"{model} — {message}"
 
-        if chat_response.status_code == 200:
-            note = f"{model} ready ({elapsed_ms}ms)"
-            if elapsed_ms > GROK_SLOW_MS:
-                note = f"{model} ready ({elapsed_ms}ms, responses can be slow)"
-            return ConnectorHealth(
-                name="Grok AI",
-                status="healthy",
-                last_checked=now,
-                message=note,
-            )
-
-        if chat_response.status_code == 401:
-            return ConnectorHealth(
-                name="Grok AI",
-                status="degraded",
-                last_checked=now,
-                message="Invalid XAI API key — rule engine still active",
-            )
-
-        if chat_response.status_code == 429:
-            return ConnectorHealth(
-                name="Grok AI",
-                status="down",
-                last_checked=now,
-                message="Grok quota/rate limit hit — check xAI billing",
-            )
-
-        return ConnectorHealth(
-            name="Grok AI",
-            status="degraded",
-            last_checked=now,
-            message=f"Chat API status {chat_response.status_code}",
-        )
-    except httpx.TimeoutException:
-        return ConnectorHealth(
-            name="Grok AI",
-            status="degraded",
-            last_checked=now,
-            message="Request timed out (>15s)",
-        )
-    except httpx.RequestError as exc:
-        return ConnectorHealth(
-            name="Grok AI",
-            status="degraded",
-            last_checked=now,
-            message=f"Unreachable from control plane: {exc}",
-        )
+    return ConnectorHealth(
+        name="Grok AI",
+        status=status,  # type: ignore[arg-type]
+        last_checked=now,
+        message=message,
+    )
 
 
 def _check_terraform_registry() -> ConnectorHealth:

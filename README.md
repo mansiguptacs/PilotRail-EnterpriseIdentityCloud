@@ -18,7 +18,7 @@ A hackathon MVP demonstrating **transparent apply-gate governance** for AI-gener
 | **Signed context packet** | SHA-256 integrity hash over plan metadata |
 | **Audit log service** | AUTO_APPROVE, APPROVE, REJECT, EXECUTE, NOTIFY_* with named actors |
 | **Pilot agent panel** | Contextual guidance based on enforcement level |
-| **Connector health APIs** | Live checks: Grok AI, Terraform CLI, Registry, policy engine |
+| **Connector health APIs** | Live checks for infra; Grok status from config + last policy scan (no idle API probes) |
 | **Separation of duties** | Approver cannot equal requester (409 enforced) |
 
 ## Architecture
