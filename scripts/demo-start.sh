@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-command Pilot Rail enterprise demo bootstrap.
+# One-command Pilot Rail enterprise demo bootstrap (all services in Docker).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -7,17 +7,13 @@ cd "$REPO_ROOT"
 
 AUTO_PUSH=1
 REVIEWER="SEC"
-DEMO_DIR="$REPO_ROOT/.demo"
-BACKEND_PID="$DEMO_DIR/backend.pid"
-FRONTEND_PID="$DEMO_DIR/frontend.pid"
-BACKEND_LOG="$DEMO_DIR/backend.log"
-FRONTEND_LOG="$DEMO_DIR/frontend.log"
 
 usage() {
   cat <<EOF
 Usage: $0 [options]
 
-  Starts container, backend, and frontend. Optionally auto-deploys the apply gate.
+  Starts backend, frontend, and pilot-dev via docker compose.
+  Optionally auto-deploys the apply gate.
 
 Options:
   --no-push           Skip auto deploy-gate (use dashboard for IT push demo)
@@ -39,11 +35,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-mkdir -p "$DEMO_DIR" demo-vm/keys demo-vm/staging
-
 # Docker socket fallback (Docker Desktop vs system docker)
 if ! docker info >/dev/null 2>&1 && [[ -S /var/run/docker.sock ]]; then
   export DOCKER_HOST="unix:///var/run/docker.sock"
+fi
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "ERROR: docker not installed. Install Docker Desktop (Mac) or docker.io (Linux)."
+  exit 1
 fi
 
 log() { echo "==> $*"; }
@@ -51,7 +50,7 @@ log() { echo "==> $*"; }
 wait_for_url() {
   local url="$1"
   local label="$2"
-  local tries="${3:-30}"
+  local tries="${3:-60}"
   for ((i = 1; i <= tries; i++)); do
     if curl -sf "$url" >/dev/null 2>&1; then
       echo "  OK   $label"
@@ -63,75 +62,37 @@ wait_for_url() {
   return 1
 }
 
-start_if_dead() {
-  local pid_file="$1"
-  if [[ -f "$pid_file" ]]; then
-    local pid
-    pid="$(cat "$pid_file")"
-    if kill -0 "$pid" 2>/dev/null; then
-      return 0
-    fi
-  fi
-  return 1
-}
-
-log "Pilot Rail demo bootstrap"
+log "Pilot Rail demo bootstrap (Docker Compose)"
 log "Repository: $REPO_ROOT"
 echo ""
 
-# 1. Container
-log "Starting pilot-dev container..."
-bash scripts/provision-dev-container.sh
-
-# 2. Backend
-log "Starting backend on :8000..."
-if curl -sf http://127.0.0.1:8000/health >/dev/null 2>&1; then
-  echo "  OK   backend already running"
-else
-  if [[ ! -d backend/.venv ]]; then
-    python3 -m venv backend/.venv
-  fi
-  backend/.venv/bin/pip install -q -r backend/requirements.txt
-  if start_if_dead "$BACKEND_PID"; then
-    echo "  OK   backend already running (pid $(cat "$BACKEND_PID"))"
-  else
-    nohup backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 \
-      >"$BACKEND_LOG" 2>&1 &
-    echo $! >"$BACKEND_PID"
-    wait_for_url "http://127.0.0.1:8000/health" "backend health"
-  fi
+# SSH keys for IT push (host-side; mounted into backend container)
+mkdir -p demo-vm/keys demo-vm/staging backend/data
+if [[ ! -f demo-vm/keys/pilot_push_key ]]; then
+  ssh-keygen -t ed25519 -N "" -f demo-vm/keys/pilot_push_key -C pilot-rail-push
+  cp demo-vm/keys/pilot_push_key.pub demo-container/ssh/authorized_keys
+  echo "  Generated push SSH key pair in demo-vm/keys/"
 fi
 
-# 3. Frontend
-log "Starting frontend on :5173..."
-if curl -sf http://127.0.0.1:5173 >/dev/null 2>&1; then
-  echo "  OK   frontend already running"
-else
-  if [[ ! -d frontend/node_modules ]]; then
-    (cd frontend && npm install --silent)
-  fi
-  if start_if_dead "$FRONTEND_PID"; then
-    echo "  OK   frontend already running (pid $(cat "$FRONTEND_PID"))"
-  else
-    nohup bash -lc "cd frontend && npm run dev -- --host 127.0.0.1 --port 5173" \
-      >"$FRONTEND_LOG" 2>&1 &
-    echo $! >"$FRONTEND_PID"
-    wait_for_url "http://127.0.0.1:5173" "frontend dev server" 45
-  fi
-fi
+log "Building and starting services (backend, frontend, pilot-dev)..."
+docker compose build
+docker compose up -d
 
-# 4. Container → API connectivity
-log "Checking container can reach host API..."
-wait_for_url "http://127.0.0.1:8000/health" "host API" 5
-docker exec pilot-dev curl -sf http://host.docker.internal:8000/health >/dev/null
-echo "  OK   container → host API"
+log "Waiting for backend..."
+wait_for_url "http://127.0.0.1:8000/health" "backend health"
 
-# 5. Auto-push gate (optional)
+log "Waiting for frontend..."
+wait_for_url "http://127.0.0.1:5173" "frontend dev server" 60
+
+log "Checking pilot-dev can reach API..."
+docker exec pilot-dev curl -sf http://backend:8000/health >/dev/null
+echo "  OK   pilot-dev → backend API"
+
 if [[ "$AUTO_PUSH" -eq 1 ]]; then
   log "Auto-deploying apply gate to pilot-dev as $REVIEWER..."
   if response=$(curl -sf -X POST http://127.0.0.1:8000/api/workstations/push \
     -H "Content-Type: application/json" \
-    -d "{\"ip\":\"127.0.0.1\",\"vm_name\":\"pilot-dev\",\"ssh_port\":2222,\"ssh_user\":\"developer\",\"reviewer_initials\":\"$REVIEWER\"}"); then
+    -d "{\"vm_name\":\"pilot-dev\",\"ip\":\"pilot-dev\",\"ssh_port\":22,\"ssh_user\":\"developer\",\"reviewer_initials\":\"$REVIEWER\"}"); then
     if echo "$response" | grep -qE '"state"\s*:\s*"(DEPLOYED|DEPLOYING)"'; then
       echo "  OK   gate deployed"
     else
@@ -144,7 +105,6 @@ else
   log "Skipping auto-push (--no-push). Deploy gate from dashboard → Workstations."
 fi
 
-# 6. Final preflight
 log "Running preflight checks..."
 bash scripts/demo-preflight.sh
 
@@ -167,6 +127,6 @@ if [[ "$AUTO_PUSH" -eq 0 ]]; then
   echo "  Next: Dashboard → Workstations → Deploy Gate (as $REVIEWER)"
   echo ""
 fi
-echo "  Logs:  .demo/backend.log  .demo/frontend.log"
+echo "  Logs:  docker compose logs -f backend|frontend|pilot-dev"
 echo "  Stop:  bash scripts/demo-stop.sh"
 echo ""

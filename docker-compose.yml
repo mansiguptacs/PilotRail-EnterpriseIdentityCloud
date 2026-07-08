@@ -1,17 +1,65 @@
 services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: pilot-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/data:/app/backend/data
+      - ./demo-vm/keys:/app/demo-vm/keys
+      - ./demo-vm/staging:/app/demo-vm/staging
+    env_file:
+      - ./backend/.env
+    environment:
+      - PUSH_TRANSPORT=ssh
+      - PILOT_AI_ON_APPLY=true
+      - PILOT_HOST_API_URL=http://backend:8000
+      - PILOT_KNOWN_WORKSTATIONS=pilot-dev
+      - PILOT_WORKSTATION_SSH_PORT=22
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    networks:
+      - pilot-net
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: pilot-frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - pilot-net
+    restart: unless-stopped
+
   pilot-dev:
     build: ./demo-container
     container_name: pilot-dev
     hostname: pilot-dev
     ports:
       - "2222:22"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    depends_on:
+      backend:
+        condition: service_healthy
     environment:
       - PILOT_CONTAINER_NAME=pilot-dev
-      - PILOT_HOST_SSH_PORT=2222
-      - PILOT_HOST_API_URL=http://host.docker.internal:8000
+      - PILOT_SSH_PORT=22
+      - PILOT_HOST_API_URL=http://backend:8000
     labels:
       - "pilot-rail.io/role=workstation"
       - "pilot-rail.io/managed=true"
+    networks:
+      - pilot-net
     restart: unless-stopped
+
+networks:
+  pilot-net:
+    driver: bridge

@@ -32,7 +32,7 @@ def _color(text: str, code: str) -> str:
     return f"{code}{text}{RESET}"
 
 
-def _http_json(method: str, url: str, payload: dict | None = None, timeout: float = 30) -> dict:
+def _http_json(method: str, url: str, payload: dict | None = None, timeout: float = 90) -> dict:
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(
         url,
@@ -115,6 +115,42 @@ def collect_tf_code(cwd: Path) -> str:
     return "\n\n".join(parts)
 
 
+def _installed_manifest() -> dict:
+    path = Path.home() / ".pilot-rail" / "installed.json"
+    if path.exists():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def print_secure_terraform_banner(*, full: bool = False) -> None:
+    """Show that the developer is using IT-deployed secure terraform."""
+    if not sys.stdout.isatty():
+        return
+    manifest = _installed_manifest()
+    deployed_by = manifest.get("deployed_by", "IT")
+    control = manifest.get("control_plane", API_BASE.replace("/api", ""))
+    shim_version = manifest.get("shim_version", "0.1.0")
+
+    if full:
+        print(_color("\n╔══════════════════════════════════════════════════════════╗", BLUE))
+        print(_color("║  PILOT RAIL — Secure Enterprise Terraform               ║", BLUE))
+        print(_color(f"║  Deployed by: {deployed_by:<42} ║", BLUE))
+        print(_color("║  terraform apply is governed by Pilot Rail policy        ║", BLUE))
+        print(_color("╚══════════════════════════════════════════════════════════╝", BLUE))
+        print(_color(f"  Control plane: {control}", BLUE))
+        print(_color(f"  Shim version:  {shim_version}\n", BLUE))
+    else:
+        print(
+            _color(
+                f"[pilot-rail] Secure enterprise Terraform (deployed by {deployed_by})",
+                BLUE,
+            )
+        )
+
+
 def is_apply_command(args: list[str]) -> bool:
     return bool(args) and args[0] == "apply"
 
@@ -154,6 +190,22 @@ def report_execution(plan_id: str, status: str, output: str, exit_code: int) -> 
     )
 
 
+def print_developer_coach(plan: dict) -> None:
+    guidance = plan.get("pilot_guidance") or {}
+    hint = guidance.get("developer_hint", "").strip()
+    scan_model = plan.get("scan_model", "")
+    if scan_model == "ai_unavailable":
+        print(_color("[pilot-rail] Grok AI review unavailable — rule engine enforcement active", YELLOW))
+    elif scan_model and scan_model not in ("none", "rule_engine_only"):
+        print(_color(f"[pilot-rail] Policy scan: rules + Grok ({scan_model})", BLUE))
+
+    if hint:
+        print(_color("\n[pilot-rail] Developer Coach:", YELLOW))
+        for line in hint.splitlines():
+            print(f"  {line}")
+        print()
+
+
 def gate_apply(tf_bin: str, apply_args: list[str], cwd: Path) -> int:
     requester = get_requester()
     workspace_path = str(cwd.resolve())
@@ -188,6 +240,7 @@ def gate_apply(tf_bin: str, apply_args: list[str], cwd: Path) -> int:
     plan_json = show_result.stdout
     fingerprint = compute_fingerprint(code, plan_json, workspace_path, requester)
 
+    print(_color("[pilot-rail] Submitting plan for rule + Grok AI policy review...", BLUE))
     try:
         plan = submit_plan(code, plan_json, requester, fingerprint, workspace_path)
     except RuntimeError as exc:
@@ -212,6 +265,7 @@ def gate_apply(tf_bin: str, apply_args: list[str], cwd: Path) -> int:
             print(_color(f"[pilot-rail] {len(findings)} policy finding(s):", YELLOW))
             for f in findings[:5]:
                 print(f"  [{f.get('policy_id')}] {f.get('term')} ({f.get('severity')})")
+        print_developer_coach(plan)
         print(_color("\n[pilot-rail] BLOCKED — approval required.", RED))
         print(_color(f"  Request ID: {plan_id}", BLUE))
         print(_color("  Approver notified (mock: #security-approvals)", BLUE))
@@ -223,6 +277,7 @@ def gate_apply(tf_bin: str, apply_args: list[str], cwd: Path) -> int:
         reason = plan.get("reject_comment", "No reason provided")
         reviewer = plan.get("reviewer_initials", "reviewer")
         print(_color(f"\n[pilot-rail] REJECTED by {reviewer}: {reason}", RED))
+        print_developer_coach(plan)
         print(_color("  Revise your Terraform and try again.\n", YELLOW))
         return 1
 
@@ -263,7 +318,13 @@ def main() -> int:
     cwd = Path.cwd()
 
     if is_apply_command(args):
+        print_secure_terraform_banner(full=False)
         return gate_apply(tf_bin, args[1:], cwd)
+
+    if not args or args[0] in ("-help", "help", "-version", "version"):
+        print_secure_terraform_banner(full=True)
+    else:
+        print_secure_terraform_banner(full=False)
 
     return run_real_terraform(tf_bin, args, cwd)
 

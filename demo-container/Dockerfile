@@ -13,9 +13,11 @@ COPY ssh/authorized_keys /home/developer/.ssh/authorized_keys
 COPY pilot-rail-hint.sh /etc/profile.d/pilot-rail-hint.sh
 RUN chown -R developer:developer /home/developer/.ssh \
     && chmod 700 /home/developer/.ssh \
-    && chmod 600 /home/developer/.ssh/authorized_keys
+    && chmod 600 /home/developer/.ssh/authorized_keys \
+    && printf '\n# Pilot Rail — load enterprise gate after IT deploy\n[ -f "$HOME/.pilot-rail/enable-gate.sh" ] && . "$HOME/.pilot-rail/enable-gate.sh"\n' >> /home/developer/.profile \
+    && chown developer:developer /home/developer/.profile
 
-WORKDIR /home/developer/demo-workspace
+WORKDIR /home/developer
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

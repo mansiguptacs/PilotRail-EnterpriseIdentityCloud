@@ -8,13 +8,16 @@ from typing import Literal
 import httpx
 
 from app.context_packet import utc_now
+from app.llm_client import XAI_API_BASE, xai_api_key, xai_model
 from app.models import ConnectorHealth
+from app.policy_engine import _load_rules
 
 Status = Literal["healthy", "degraded", "down"]
 
 _cache: dict[str, tuple[float, ConnectorHealth]] = {}
 CACHE_TTL_SECONDS = 30
 DEGRADED_LATENCY_MS = 2000
+GROK_SLOW_MS = 5000
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 TERRAFORM_BIN = REPO_ROOT / "backend" / "bin" / "terraform"
@@ -31,6 +34,10 @@ def _cached(name: str, checker) -> ConnectorHealth:
     return result
 
 
+def clear_connector_cache() -> None:
+    _cache.clear()
+
+
 def _resolve_terraform() -> Path | None:
     env_path = os.getenv("PILOT_REAL_TERRAFORM", "").strip()
     if env_path and Path(env_path).exists():
@@ -38,97 +45,151 @@ def _resolve_terraform() -> Path | None:
     if TERRAFORM_BIN.exists():
         return TERRAFORM_BIN
     found = shutil.which("terraform")
-    return Path(found) if found else None
+    if not found:
+        return None
+    shim_markers = (".pilot-rail/shim", "cli/shim")
+    if any(marker in found for marker in shim_markers):
+        return None
+    return Path(found)
+
+
+def _check_workstation_terraform() -> ConnectorHealth | None:
+    """Admin pod delegates terraform to managed workstations on the shared network."""
+    try:
+        from app.store import list_workstations
+
+        deployed = [w for w in list_workstations() if w.gate_active and w.state.value == "DEPLOYED"]
+        now = utc_now()
+        if deployed:
+            names = ", ".join(w.vm_name or w.hostname or w.ip for w in deployed[:3])
+            return ConnectorHealth(
+                name="Terraform CLI",
+                status="healthy",
+                last_checked=now,
+                message=f"Active on managed workstation(s): {names}",
+            )
+        return ConnectorHealth(
+            name="Terraform CLI",
+            status="degraded",
+            last_checked=now,
+            message="Deploy gate to a workstation to enable terraform apply",
+        )
+    except Exception:
+        return None
 
 
 def _check_terraform_cli() -> ConnectorHealth:
     now = utc_now()
     tf = _resolve_terraform()
-    if not tf:
-        return ConnectorHealth(
-            name="Terraform CLI",
-            status="down",
-            last_checked=now,
-            message="terraform binary not found (run scripts/install-terraform.sh)",
-        )
-    try:
-        result = subprocess.run(
-            [str(tf), "version"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        version_line = result.stdout.strip().splitlines()[0] if result.stdout else "unknown"
-        return ConnectorHealth(
-            name="Terraform CLI",
-            status="healthy" if result.returncode == 0 else "degraded",
-            last_checked=now,
-            message=version_line,
-        )
-    except Exception as exc:
-        return ConnectorHealth(
-            name="Terraform CLI",
-            status="down",
-            last_checked=now,
-            message=str(exc),
-        )
+    if tf:
+        try:
+            result = subprocess.run(
+                [str(tf), "version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            version_line = result.stdout.strip().splitlines()[0] if result.stdout else "unknown"
+            return ConnectorHealth(
+                name="Terraform CLI",
+                status="healthy" if result.returncode == 0 else "degraded",
+                last_checked=now,
+                message=version_line,
+            )
+        except Exception as exc:
+            return ConnectorHealth(
+                name="Terraform CLI",
+                status="down",
+                last_checked=now,
+                message=str(exc),
+            )
+
+    delegated = _check_workstation_terraform()
+    if delegated:
+        return delegated
+
+    return ConnectorHealth(
+        name="Terraform CLI",
+        status="down",
+        last_checked=now,
+        message="terraform binary not found (run scripts/install-terraform.sh)",
+    )
 
 
-def _check_openai() -> ConnectorHealth:
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+def _check_grok_ai() -> ConnectorHealth:
+    api_key = xai_api_key()
+    model = xai_model()
     now = utc_now()
 
     if not api_key:
         return ConnectorHealth(
-            name="OpenAI",
-            status="down",
+            name="Grok AI",
+            status="degraded",
             last_checked=now,
-            message="OPENAI_API_KEY not configured",
+            message="Optional — set XAI_API_KEY in backend/.env for AI review",
         )
 
+    headers = {"Authorization": f"Bearer {api_key}"}
     start = time.monotonic()
     try:
-        with httpx.Client(timeout=5.0) as client:
-            response = client.get(
-                "https://api.openai.com/v1/models?limit=1",
-                headers={"Authorization": f"Bearer {api_key}"},
+        with httpx.Client(timeout=15.0) as client:
+            chat_response = client.post(
+                f"{XAI_API_BASE}/chat/completions",
+                headers={**headers, "Content-Type": "application/json"},
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": "ping"}],
+                    "max_tokens": 1,
+                },
             )
         elapsed_ms = int((time.monotonic() - start) * 1000)
 
-        if response.status_code == 200:
-            status: Status = "degraded" if elapsed_ms > DEGRADED_LATENCY_MS else "healthy"
+        if chat_response.status_code == 200:
+            note = f"{model} ready ({elapsed_ms}ms)"
+            if elapsed_ms > GROK_SLOW_MS:
+                note = f"{model} ready ({elapsed_ms}ms, responses can be slow)"
             return ConnectorHealth(
-                name="OpenAI",
-                status=status,
+                name="Grok AI",
+                status="healthy",
                 last_checked=now,
-                message=f"API reachable ({elapsed_ms}ms)",
+                message=note,
             )
-        if response.status_code == 401:
+
+        if chat_response.status_code == 401:
             return ConnectorHealth(
-                name="OpenAI",
+                name="Grok AI",
+                status="degraded",
+                last_checked=now,
+                message="Invalid XAI API key — rule engine still active",
+            )
+
+        if chat_response.status_code == 429:
+            return ConnectorHealth(
+                name="Grok AI",
                 status="down",
                 last_checked=now,
-                message="Invalid API key (401 Unauthorized)",
+                message="Grok quota/rate limit hit — check xAI billing",
             )
+
         return ConnectorHealth(
-            name="OpenAI",
+            name="Grok AI",
             status="degraded",
             last_checked=now,
-            message=f"Unexpected status {response.status_code}",
+            message=f"Chat API status {chat_response.status_code}",
         )
     except httpx.TimeoutException:
         return ConnectorHealth(
-            name="OpenAI",
+            name="Grok AI",
             status="degraded",
             last_checked=now,
-            message="Request timed out (>5s)",
+            message="Request timed out (>15s)",
         )
     except httpx.RequestError as exc:
         return ConnectorHealth(
-            name="OpenAI",
-            status="down",
+            name="Grok AI",
+            status="degraded",
             last_checked=now,
-            message=f"Connection failed: {exc}",
+            message=f"Unreachable from control plane: {exc}",
         )
 
 
@@ -157,6 +218,32 @@ def _check_terraform_registry() -> ConnectorHealth:
     except Exception as exc:
         return ConnectorHealth(
             name="Terraform Registry",
+            status="degraded",
+            last_checked=now,
+            message=str(exc),
+        )
+
+
+def _check_policy_engine() -> ConnectorHealth:
+    now = utc_now()
+    try:
+        rules = _load_rules()
+        if not rules:
+            return ConnectorHealth(
+                name="Policy Rule Engine",
+                status="down",
+                last_checked=now,
+                message="No policy packs loaded — all applies will auto-approve",
+            )
+        return ConnectorHealth(
+            name="Policy Rule Engine",
+            status="healthy",
+            last_checked=now,
+            message=f"{len(rules)} rules loaded from AWS + IAM baseline packs",
+        )
+    except Exception as exc:
+        return ConnectorHealth(
+            name="Policy Rule Engine",
             status="down",
             last_checked=now,
             message=str(exc),
@@ -164,26 +251,28 @@ def _check_terraform_registry() -> ConnectorHealth:
 
 
 def get_all_connector_health() -> list[ConnectorHealth]:
+    grok_health = _cached("grok_ai", _check_grok_ai)
+    ai_reviewer_status: Status = "healthy"
+    if grok_health.status == "degraded":
+        ai_reviewer_status = "degraded"
+    elif grok_health.status == "down":
+        ai_reviewer_status = "degraded"
+
     return [
-        _cached("openai", _check_openai),
+        grok_health,
         _cached("terraform_cli", _check_terraform_cli),
         _cached("terraform", _check_terraform_registry),
-        ConnectorHealth(
-            name="Policy Rule Engine",
-            status="healthy",
-            last_checked=utc_now(),
-            message="AWS + IAM baseline policy packs loaded",
-        ),
+        _cached("policy_engine", _check_policy_engine),
         ConnectorHealth(
             name="Apply Gate Shim",
             status="healthy",
             last_checked=utc_now(),
-            message="terraform wrapper active",
+            message="terraform wrapper active on managed workstations",
         ),
         ConnectorHealth(
             name="AI Policy Reviewer",
-            status="healthy" if os.getenv("OPENAI_API_KEY", "").strip() else "degraded",
+            status=ai_reviewer_status,
             last_checked=utc_now(),
-            message="Active" if os.getenv("OPENAI_API_KEY", "").strip() else "Inactive — rule engine only",
+            message=grok_health.message,
         ),
     ]

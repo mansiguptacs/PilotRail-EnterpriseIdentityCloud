@@ -26,6 +26,7 @@ class PolicyFinding(BaseModel):
 class PilotGuidance(BaseModel):
     message: str
     suggestion: str = ""
+    developer_hint: str = ""
 
 
 class ScanResult(BaseModel):
@@ -135,6 +136,20 @@ class ConnectorHealth(BaseModel):
     message: str
 
 
+class ResetDemoRequest(BaseModel):
+    reviewer_initials: str = Field(default="SEC", min_length=1)
+    clear_workstations: bool = False
+
+
+class ResetDemoResponse(BaseModel):
+    message: str
+    plans_cleared: int
+    audit_cleared: int
+    notifications_cleared: int
+    workstations_cleared: int = 0
+    workstation_notifications_cleared: int = 0
+
+
 class WorkstationState(str, Enum):
     PENDING_PUSH = "PENDING_PUSH"
     DEPLOYING = "DEPLOYING"
@@ -166,7 +181,7 @@ class Workstation(BaseModel):
     deployed_at: Optional[str] = None
     last_error: Optional[str] = None
     container_id: str = ""
-    ssh_port: int = 2222
+    ssh_port: int = 22
     discovery_source: str = ""
     created_at: str
     updated_at: str
@@ -184,7 +199,7 @@ class WorkstationNotification(BaseModel):
 class DiscoveredVM(BaseModel):
     vm_name: str
     ip: str
-    ssh_port: int = 2222
+    ssh_port: int = 22
     container_id: str = ""
     endpoint: str = ""
     discovery_source: str = "label-scan"
@@ -213,8 +228,8 @@ class PushWorkstationRequest(BaseModel):
 class RegisterWorkstationRequest(BaseModel):
     hostname: str
     container_id: str = ""
-    host_ssh_port: int = 2222
-    ip: str = "127.0.0.1"
+    host_ssh_port: int = 22
+    ip: str = ""
 
 class HeartbeatRequest(BaseModel):
     shim_version: str = "0.1.0"

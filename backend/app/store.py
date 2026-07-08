@@ -271,6 +271,26 @@ def save_notification(
     return notification
 
 
+def reset_demo_data(clear_workstations: bool = False) -> dict[str, int]:
+    """Clear plans, approvals, rejections, audit log, and notifications."""
+    counts = {
+        "plans_cleared": len(list_plans()),
+        "audit_cleared": len(list_audit_entries()),
+        "notifications_cleared": len(list_notifications()),
+    }
+    _write_json(PLANS_FILE, [])
+    _write_json(AUDIT_FILE, [])
+    _write_json(NOTIFICATIONS_FILE, [])
+    if clear_workstations:
+        counts["workstations_cleared"] = len(list_workstations())
+        counts["workstation_notifications_cleared"] = len(
+            _read_json(WORKSTATION_NOTIFICATIONS_FILE, [])
+        )
+        _write_json(WORKSTATIONS_FILE, [])
+        _write_json(WORKSTATION_NOTIFICATIONS_FILE, [])
+    return counts
+
+
 def list_notifications(recipient: Optional[str] = None) -> list[Notification]:
     raw = _read_json(NOTIFICATIONS_FILE, [])
     notifications = [Notification.model_validate(item) for item in raw]
@@ -375,7 +395,7 @@ def create_workstation(
     hostname: str = "",
     ssh_user: str = "developer",
     container_id: str = "",
-    ssh_port: int = 2222,
+    ssh_port: int = 22,
     discovery_source: str = "",
 ) -> Workstation:
     now = utc_now()

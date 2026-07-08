@@ -1,10 +1,10 @@
 import json
-import os
 import re
 from typing import Any
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
+
+from app.llm_client import get_chat_llm, model_label
 
 SYSTEM_PROMPT = """You are an infrastructure-as-code assistant.
 Given a user request, generate Terraform configuration.
@@ -119,16 +119,15 @@ def _parse_llm_response(content: str) -> dict[str, str]:
 
 
 def generate_plan(prompt: str) -> dict[str, Any]:
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    if not api_key:
+    llm = get_chat_llm()
+    if llm is None:
         result = _mock_plan(prompt)
         return {**result, "model": "mock-generator"}
 
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, api_key=api_key)
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
         HumanMessage(content=prompt),
     ]
     response = llm.invoke(messages)
     result = _parse_llm_response(response.content)
-    return {**result, "model": "gpt-4o-mini"}
+    return {**result, "model": model_label()}

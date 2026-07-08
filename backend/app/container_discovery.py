@@ -1,142 +1,108 @@
-import json
-import re
-import shutil
-import subprocess
+import os
+import socket
 
 from app.models import AgentStatus, DiscoveredVM, WorkstationState
 from app.store import find_workstation_by_ip_or_name, list_workstations
 
-MANAGED_LABEL = "pilot-rail.io/managed=true"
-DEFAULT_SSH_PORT = 2222
-DEFAULT_IP = "127.0.0.1"
+DEFAULT_SSH_PORT = int(os.getenv("PILOT_WORKSTATION_SSH_PORT", "22"))
+PROBE_TIMEOUT = float(os.getenv("PILOT_PROBE_TIMEOUT", "2"))
 
 
-def _docker_available() -> bool:
-    return shutil.which("docker") is not None
+def _known_workstation_hosts() -> list[str]:
+    raw = os.getenv("PILOT_KNOWN_WORKSTATIONS", "pilot-dev")
+    return [h.strip() for h in raw.split(",") if h.strip()]
 
 
-def _parse_host_ssh_port(ports: str) -> int:
-    if not ports:
-        return DEFAULT_SSH_PORT
-    match = re.search(r":(\d+)->22", ports)
-    if match:
-        return int(match.group(1))
-    match = re.search(r"^(\d+)->22", ports)
-    if match:
-        return int(match.group(1))
-    return DEFAULT_SSH_PORT
-
-
-def list_managed_containers() -> list[dict]:
-    if not _docker_available():
-        return []
+def _probe_tcp(host: str, port: int) -> bool:
     try:
-        result = subprocess.run(
-            [
-                "docker",
-                "ps",
-                "--filter",
-                f"label={MANAGED_LABEL}",
-                "--format",
-                "{{json .}}",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        if result.returncode != 0:
-            return []
-        containers: list[dict] = []
-        for line in result.stdout.strip().splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                containers.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-        return containers
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return []
+        with socket.create_connection((host, port), timeout=PROBE_TIMEOUT):
+            return True
+    except OSError:
+        return False
 
 
 def _find_fleet_match(
     fleet: list,
     *,
-    vm_name: str = "",
-    ip: str = "",
-    container_id: str = "",
+    hostname: str = "",
 ):
-    ws = find_workstation_by_ip_or_name(ip=ip, vm_name=vm_name)
+    ws = find_workstation_by_ip_or_name(ip=hostname, vm_name=hostname)
     if ws:
         return ws
     for item in fleet:
-        cid = getattr(item, "container_id", "") or ""
-        if container_id and cid and (
-            cid.startswith(container_id[:12]) or container_id.startswith(cid[:12])
-        ):
-            return item
-        if vm_name and (item.vm_name == vm_name or item.hostname == vm_name):
+        if hostname and (item.vm_name == hostname or item.hostname == hostname or item.ip == hostname):
             return item
     return None
 
 
+def _deploy_state_for(ws, *, reachable: bool) -> WorkstationState:
+    if not ws:
+        return WorkstationState.PENDING_PUSH
+    if reachable and ws.state in (WorkstationState.FAILED, WorkstationState.REVOKED):
+        return WorkstationState.PENDING_PUSH
+    return ws.state
+
+
 def discover_workstations() -> list[DiscoveredVM]:
+    """Discover developer workstations on the shared network.
+
+    No Docker/orchestrator API access — discovery uses:
+    1. Self-registration beacons (POST /api/workstations/register)
+    2. TCP reachability probe to known workstation hostnames (port 22)
+    3. Agent heartbeat state from the fleet store
+    """
     fleet = list_workstations()
     discovered: list[DiscoveredVM] = []
-    seen_names: set[str] = set()
+    seen_hosts: set[str] = set()
+    seen_ws_ids: set[str] = set()
 
-    for entry in list_managed_containers():
-        name = entry.get("Names", "").lstrip("/")
-        if not name:
+    candidates = {h for h in _known_workstation_hosts()}
+    for ws in fleet:
+        for name in (ws.vm_name, ws.hostname, ws.ip):
+            if name:
+                candidates.add(name)
+
+    def _sort_key(host: str) -> tuple[int, str]:
+        # Prefer service DNS names over loopback IPs
+        is_ip = host.replace(".", "").isdigit() or host in ("127.0.0.1", "localhost")
+        return (1 if is_ip else 0, host)
+
+    for hostname in sorted(candidates, key=_sort_key):
+        if hostname in seen_hosts:
             continue
-        state = entry.get("State", "unknown")
-        if state.lower() != "running":
+
+        ws = _find_fleet_match(fleet, hostname=hostname)
+        if ws and ws.id in seen_ws_ids:
             continue
 
-        container_id = (entry.get("ID") or "")[:12]
-        ports = entry.get("Ports", "") or entry.get("LocalPorts", "")
-        ssh_port = _parse_host_ssh_port(ports)
-        ip = DEFAULT_IP
-        endpoint = f"{ip}:{ssh_port}"
+        seen_hosts.add(hostname)
+        if ws:
+            seen_ws_ids.add(ws.id)
 
-        ws = _find_fleet_match(fleet, vm_name=name, ip=ip, container_id=container_id)
-        discovery_source = "label-scan"
-        if ws and getattr(ws, "discovery_source", "") == "self-registered":
-            discovery_source = "self-registered"
+        reachable = _probe_tcp(hostname, DEFAULT_SSH_PORT)
+        port = DEFAULT_SSH_PORT
+        if ws and ws.ssh_port and ws.ssh_port not in (2222,):
+            port = ws.ssh_port
+
+        if ws:
+            discovery_source = ws.discovery_source or "heartbeat"
+        elif reachable:
+            discovery_source = "network-probe"
+        else:
+            discovery_source = "unreachable"
 
         discovered.append(
             DiscoveredVM(
-                vm_name=name,
-                ip=ip,
-                ssh_port=ssh_port,
-                container_id=container_id,
-                endpoint=endpoint,
+                vm_name=ws.vm_name if ws and ws.vm_name else hostname,
+                ip=hostname,
+                ssh_port=port,
+                container_id=ws.container_id if ws else "",
+                endpoint=f"{hostname}:{port}",
                 discovery_source=discovery_source,
-                state=state,
+                state="Running" if reachable else "Unreachable",
                 workstation_id=ws.id if ws else None,
                 agent_status=ws.agent_status if ws else AgentStatus.NOT_DEPLOYED,
-                deploy_state=ws.state if ws else WorkstationState.PENDING_PUSH,
-            )
-        )
-        seen_names.add(name)
-
-    for ws in fleet:
-        if ws.vm_name and ws.vm_name in seen_names:
-            continue
-        port = ws.ssh_port or DEFAULT_SSH_PORT
-        discovered.append(
-            DiscoveredVM(
-                vm_name=ws.vm_name or ws.hostname,
-                ip=ws.ip or DEFAULT_IP,
-                ssh_port=port,
-                container_id=ws.container_id,
-                endpoint=f"{ws.ip}:{port}" if ws.ip else "",
-                discovery_source=ws.discovery_source or "heartbeat",
-                state="unknown",
-                workstation_id=ws.id,
-                agent_status=ws.agent_status,
-                deploy_state=ws.state,
+                deploy_state=_deploy_state_for(ws, reachable=reachable),
             )
         )
 

@@ -9,6 +9,7 @@ import {
   fetchPlans,
   fetchWorkstations,
   rejectPlan,
+  resetDemoData,
 } from "./api";
 import type { AuditEntry, ConnectorHealth, DiscoveredVM, Notification, Plan, Workstation } from "./types";
 import AuditLog from "./components/AuditLog";
@@ -33,6 +34,7 @@ export default function App() {
   const [discovered, setDiscovered] = useState<DiscoveredVM[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const selectedPlan = plans.find((p) => p.id === selectedId) ?? null;
@@ -112,6 +114,27 @@ export default function App() {
     }
   }
 
+  async function handleResetDemo() {
+    if (
+      !window.confirm(
+        "Clear all plans, approvals, rejections, audit log, and notifications? Workstation fleet is kept."
+      )
+    ) {
+      return;
+    }
+    setResetLoading(true);
+    setError(null);
+    try {
+      await resetDemoData({ reviewer_initials: "SEC" });
+      setSelectedId(null);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reset demo data");
+    } finally {
+      setResetLoading(false);
+    }
+  }
+
   return (
     <div className="app">
       <header className="header">
@@ -158,6 +181,14 @@ export default function App() {
       <div className="refresh-bar">
         <button className="refresh-btn" onClick={refresh}>
           Refresh
+        </button>
+        <button
+          className="reset-btn"
+          onClick={handleResetDemo}
+          disabled={resetLoading}
+          title="Clear plans, approvals, rejections, audit, and notifications"
+        >
+          {resetLoading ? "Resetting…" : "Reset Demo Data"}
         </button>
       </div>
 

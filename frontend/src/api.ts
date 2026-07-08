@@ -62,6 +62,24 @@ export function fetchConnectorHealth(): Promise<ConnectorHealth[]> {
   return request<ConnectorHealth[]>("/connectors/health");
 }
 
+export function resetDemoData(payload: {
+  reviewer_initials?: string;
+  clear_workstations?: boolean;
+}): Promise<{
+  message: string;
+  plans_cleared: number;
+  audit_cleared: number;
+  notifications_cleared: number;
+}> {
+  return request("/admin/reset-demo", {
+    method: "POST",
+    body: JSON.stringify({
+      reviewer_initials: payload.reviewer_initials ?? "SEC",
+      clear_workstations: payload.clear_workstations ?? false,
+    }),
+  });
+}
+
 export function fetchNotifications(): Promise<Notification[]> {
   return request<Notification[]>("/notifications");
 }

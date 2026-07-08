@@ -1,0 +1,13 @@
+.git
+.demo
+**/__pycache__
+**/*.pyc
+backend/.venv
+frontend/node_modules
+frontend/dist
+backend/data/*.json
+demo-vm/keys/
+demo-vm/staging/
+*.md
+.idea
+.vscode

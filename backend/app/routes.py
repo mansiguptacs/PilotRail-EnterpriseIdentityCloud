@@ -1,3 +1,5 @@
+import os
+
 from fastapi import APIRouter, HTTPException
 
 from app.ai_layer import generate_plan
@@ -12,6 +14,8 @@ from app.models import (
     Plan,
     PlanState,
     RejectRequest,
+    ResetDemoRequest,
+    ResetDemoResponse,
 )
 from app.notifications import (
     notify_approver,
@@ -28,6 +32,7 @@ from app.store import (
     list_notifications,
     list_plans,
     record_execution,
+    reset_demo_data,
     transition_plan,
 )
 
@@ -38,9 +43,15 @@ def _normalize_identity(name: str) -> str:
     return name.strip().lower()
 
 
+def _skip_ai_for_source(source: str) -> bool:
+    if source != "wrapper":
+        return False
+    return os.getenv("PILOT_AI_ON_APPLY", "true").strip().lower() in ("0", "false", "no")
+
+
 @router.post("/plans", response_model=Plan)
 def create_plan_endpoint(body: CreatePlanRequest) -> Plan:
-    skip_ai = body.source == "wrapper"
+    skip_ai = _skip_ai_for_source(body.source)
 
     if body.code:
         prompt = body.prompt or f"terraform apply by {body.requester}"
@@ -57,17 +68,21 @@ def create_plan_endpoint(body: CreatePlanRequest) -> Plan:
             code=code,
             workspace_path=body.workspace_path,
         )
+        scan = None
         if existing:
             if existing.state == PlanState.APPROVED:
-                return existing
-            if existing.state == PlanState.AUTO_APPROVED:
                 return existing
             if existing.state == PlanState.REJECTED:
                 return existing
             if existing.state == PlanState.PENDING_REVIEW:
                 return existing
+            if existing.state == PlanState.AUTO_APPROVED:
+                scan = scan_plan(code, prompt, body.plan_json, skip_ai=skip_ai)
+                if scan.recommended_state == PlanState.AUTO_APPROVED:
+                    return existing
 
-        scan = scan_plan(code, prompt, body.plan_json, skip_ai=skip_ai)
+        if scan is None:
+            scan = scan_plan(code, prompt, body.plan_json, skip_ai=skip_ai)
     else:
         generated = generate_plan(body.prompt)  # type: ignore[arg-type]
         code = generated["code"]
@@ -231,3 +246,16 @@ def get_notifications(recipient: str | None = None) -> list[Notification]:
 @router.get("/connectors/health", response_model=list[ConnectorHealth])
 def get_connector_health() -> list[ConnectorHealth]:
     return get_all_connector_health()
+
+
+@router.post("/admin/reset-demo", response_model=ResetDemoResponse)
+def reset_demo_endpoint(body: ResetDemoRequest) -> ResetDemoResponse:
+    counts = reset_demo_data(clear_workstations=body.clear_workstations)
+    return ResetDemoResponse(
+        message=f"Demo data reset by {body.reviewer_initials}",
+        plans_cleared=counts["plans_cleared"],
+        audit_cleared=counts["audit_cleared"],
+        notifications_cleared=counts["notifications_cleared"],
+        workstations_cleared=counts.get("workstations_cleared", 0),
+        workstation_notifications_cleared=counts.get("workstation_notifications_cleared", 0),
+    )

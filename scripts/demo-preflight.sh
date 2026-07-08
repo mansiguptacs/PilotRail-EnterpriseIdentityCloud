@@ -22,11 +22,14 @@ echo "========================="
 
 check "docker installed" command -v docker
 check "docker daemon running" docker info
+check "backend container running" docker ps --filter name=pilot-backend --filter status=running --format '{{.Names}}' | grep -q pilot-backend
+check "frontend container running" docker ps --filter name=pilot-frontend --filter status=running --format '{{.Names}}' | grep -q pilot-frontend
 check "pilot-dev container running" docker ps --filter name=pilot-dev --filter status=running --format '{{.Names}}' | grep -q pilot-dev
 check "SSH key present" test -f demo-vm/keys/pilot_push_key
 check "bundle staging writable" test -w demo-vm/staging || mkdir -p demo-vm/staging
 check "backend health" curl -sf http://127.0.0.1:8000/health
-check "container API reachability" docker exec pilot-dev curl -sf http://host.docker.internal:8000/health
+check "frontend reachable" curl -sf http://127.0.0.1:5173
+check "pilot-dev API reachability" docker exec pilot-dev curl -sf http://backend:8000/health
 check "workstation discovery" curl -sf http://127.0.0.1:8000/api/workstations/discover | grep -q pilot-dev
 
 echo ""

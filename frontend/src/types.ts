@@ -15,6 +15,7 @@ export interface PolicyFinding {
 export interface PilotGuidance {
   message: string;
   suggestion: string;
+  developer_hint?: string;
 }
 
 export interface Plan {

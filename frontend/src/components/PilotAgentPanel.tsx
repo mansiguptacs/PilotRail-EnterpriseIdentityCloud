@@ -52,6 +52,12 @@ export default function PilotAgentPanel({ plan }: Props) {
       </div>
       <p>{guidance.message}</p>
       {guidance.suggestion && <p className="suggestion">{guidance.suggestion}</p>}
+      {plan.pilot_guidance.developer_hint && (
+        <div className="developer-hint">
+          <strong>Developer coach</strong>
+          <pre>{plan.pilot_guidance.developer_hint}</pre>
+        </div>
+      )}
     </div>
   );
 }

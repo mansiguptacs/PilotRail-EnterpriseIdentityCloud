@@ -12,12 +12,13 @@ A hackathon MVP demonstrating **transparent apply-gate governance** for AI-gener
 | **Async approval flow** | Fail-fast on block; no terminal polling; dev re-runs apply after decision |
 | **Plan fingerprint unlock** | SHA-256 envelope over code + plan intent; re-apply unlocks prior approval |
 | **Mock notifications** | Approver/requester alerts in dashboard feed (Slack-style, no real integration) |
-| **IaC template generation** | LangChain + OpenAI (UI path) or real terraform plan (wrapper path) |
-| **Policy gap reporting** | YAML rule engine (AWS + IAM baselines) + optional AI reviewer |
+| **IaC template generation** | LangChain + Grok/xAI (UI path) or real terraform plan (wrapper path) |
+| **Policy gap reporting** | YAML rule engine (AWS + IAM baselines) + Grok reviewer on apply and UI paths |
+| **Developer coach** | AI-generated fix steps shown in terminal when apply is blocked + in dashboard |
 | **Signed context packet** | SHA-256 integrity hash over plan metadata |
 | **Audit log service** | AUTO_APPROVE, APPROVE, REJECT, EXECUTE, NOTIFY_* with named actors |
 | **Pilot agent panel** | Contextual guidance based on enforcement level |
-| **Connector health APIs** | Live checks: OpenAI, Terraform CLI, Registry, policy engine |
+| **Connector health APIs** | Live checks: Grok AI, Terraform CLI, Registry, policy engine |
 | **Separation of duties** | Approver cannot equal requester (409 enforced) |
 
 ## Architecture
@@ -47,7 +48,7 @@ Developer/Cursor Agent → terraform apply (wrapper shim on PATH)
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt   # or: uv pip install -r requirements.txt
-cp .env.example .env              # add OPENAI_API_KEY for AI features
+cp .env.example .env              # add XAI_API_KEY from https://console.x.ai
 uvicorn app.main:app --reload
 ```
 
@@ -102,11 +103,13 @@ Simulate a managed developer environment with Docker — portable on Mac M3, Lin
 
 ### Setup
 
-**Quick start (one command — auto-deploys gate):**
+**Quick start (one command — all services in Docker):**
 
 ```bash
 bash scripts/demo-start.sh
 ```
+
+Starts **backend** (`:8000`), **frontend** (`:5173`), and **pilot-dev** workstation via Docker Compose. No local Python venv or npm install required.
 
 **Interview IT-push story (infra only — you click Deploy Gate):**
 
@@ -114,15 +117,13 @@ bash scripts/demo-start.sh
 bash scripts/demo-start.sh --no-push
 ```
 
-`demo-start.sh` provisions the container, starts backend (`:8000`) and frontend (`:5173`), auto-pushes the gate (unless `--no-push`), and runs preflight checks. Stop background services with `bash scripts/demo-stop.sh`.
+`demo-stop.sh` runs `docker compose down` to stop everything.
 
-**Manual setup (if you prefer step-by-step):**
+**Manual compose (equivalent):**
 
 ```bash
-bash scripts/provision-dev-container.sh
+bash scripts/provision-dev-container.sh   # build + up all services
 bash scripts/demo-preflight.sh
-cd backend && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
-cd frontend && npm run dev
 ```
 
 ### Container operations
@@ -136,12 +137,13 @@ bash scripts/container-ops.sh status     # container + SSH port 2222
 
 ### Discovery
 
-Workstations appear automatically via three layers:
-1. **Label scan** — `docker ps` finds containers with `pilot-rail.io/managed=true`
-2. **Self-registration** — container beacons to `POST /api/workstations/register` on startup
+Workstations on the **shared network** are discovered without orchestrator/Docker API access:
+
+1. **Self-registration** — developer pod beacons `POST /api/workstations/register` on startup
+2. **Network probe** — admin pod TCP-checks known hostnames (`PILOT_KNOWN_WORKSTATIONS`, default `pilot-dev:22`)
 3. **Agent heartbeat** — runtime ONLINE/STALE/OFFLINE after IT deploy
 
-Default SSH endpoint: `127.0.0.1:2222` (IT admin pushes via SSH; `docker exec` is automatic fallback).
+IT push uses **SSH over the internal network** (`developer@pilot-dev:22`), not `docker exec`. Port `2222` on the host is only for manual/debug SSH from your laptop.
 
 ### Interview flow (two panes)
 
@@ -220,7 +222,9 @@ Approve if routed to review. Audit log shows `AUTO_APPROVE`, `NOTIFY_APPROVER`, 
 ├── cli/shim/terraform    # Apply gate wrapper (put on PATH via enable-gate.sh)
 ├── demo-workspace/       # Customer Terraform repo for live demo
 ├── demo-container/       # Ubuntu dev workstation image (sshd + beacon)
-├── docker-compose.yml    # pilot-dev managed workstation
+├── docker-compose.yml    # backend + frontend + pilot-dev workstation
+├── backend/Dockerfile    # FastAPI control plane image
+├── frontend/Dockerfile   # Vite dashboard image
 ├── scripts/
 │   ├── install-terraform.sh       # Download terraform to backend/bin/
 │   ├── enable-gate.sh             # Enable shim + verify backend (source this)
