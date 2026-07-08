@@ -17,6 +17,7 @@ backend/data/workstations.json
 backend/data/workstation_notifications.json
 demo-vm/keys/
 demo-vm/staging/
+.demo/
 
 # Terraform binary (downloaded locally)
 backend/bin/terraform

@@ -102,12 +102,25 @@ Simulate a managed developer environment with Docker — portable on Mac M3, Lin
 
 ### Setup
 
+**Quick start (one command — auto-deploys gate):**
+
 ```bash
-# Prerequisites: Docker Desktop (Mac/Windows) or docker (Linux)
+bash scripts/demo-start.sh
+```
+
+**Interview IT-push story (infra only — you click Deploy Gate):**
+
+```bash
+bash scripts/demo-start.sh --no-push
+```
+
+`demo-start.sh` provisions the container, starts backend (`:8000`) and frontend (`:5173`), auto-pushes the gate (unless `--no-push`), and runs preflight checks. Stop background services with `bash scripts/demo-stop.sh`.
+
+**Manual setup (if you prefer step-by-step):**
+
+```bash
 bash scripts/provision-dev-container.sh
 bash scripts/demo-preflight.sh
-
-# Host: start control plane (bind all interfaces for container access)
 cd backend && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 cd frontend && npm run dev
 ```
@@ -212,6 +225,8 @@ Approve if routed to review. Audit log shows `AUTO_APPROVE`, `NOTIFY_APPROVER`, 
 │   ├── install-terraform.sh       # Download terraform to backend/bin/
 │   ├── enable-gate.sh             # Enable shim + verify backend (source this)
 │   ├── provision-dev-container.sh # Build + start pilot-dev container
+│   ├── demo-start.sh              # One-command demo bootstrap
+│   ├── demo-stop.sh               # Stop background demo services
 │   ├── container-ops.sh           # start/stop/shell/agent-log/status
 │   ├── demo-preflight.sh          # Portable demo readiness checks
 │   └── demo-risky.sh              # Fail-fast risky scenario helper

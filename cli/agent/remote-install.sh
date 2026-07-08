@@ -38,6 +38,12 @@ with zipfile.ZipFile(sys.argv[1]) as z:
   rm -rf "$TMP"
 fi
 
+# Initialize terraform workspace so developers can apply immediately
+if [[ -f "$PILOT_HOME/workspace/versions.tf" || -f "$PILOT_HOME/workspace/main.tf" ]]; then
+  echo "[pilot-rail] Initializing terraform workspace..."
+  (cd "$PILOT_HOME/workspace" && "$PILOT_HOME/bin/terraform" init -input=false)
+fi
+
 chmod +x "$PILOT_HOME/shim/terraform" "$PILOT_HOME/agent/pilot-rail-agent" "$PILOT_HOME/agent/pilot-rail-show-notice" 2>/dev/null || true
 
 # Standard workspace path developers expect (demo-workspace -> IT-pushed workspace)
