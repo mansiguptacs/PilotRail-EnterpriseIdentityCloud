@@ -1,4 +1,4 @@
-# Pilot Rail Mini
+# Pilot Rail - Endpoint IAC Security
 
 A hackathon MVP demonstrating **transparent apply-gate governance** for AI-generated infrastructure and IAM/access changes — the core interaction pattern behind Saviynt's AI Onboarding Platform.
 
