@@ -155,7 +155,7 @@ class Workstation(BaseModel):
     ip: str
     hostname: str = ""
     vm_name: str = ""
-    ssh_user: str = "ubuntu"
+    ssh_user: str = "developer"
     state: WorkstationState = WorkstationState.PENDING_PUSH
     agent_status: AgentStatus = AgentStatus.NOT_DEPLOYED
     last_seen_at: Optional[str] = None
@@ -165,6 +165,9 @@ class Workstation(BaseModel):
     deployed_by: Optional[str] = None
     deployed_at: Optional[str] = None
     last_error: Optional[str] = None
+    container_id: str = ""
+    ssh_port: int = 2222
+    discovery_source: str = ""
     created_at: str
     updated_at: str
 
@@ -181,6 +184,10 @@ class WorkstationNotification(BaseModel):
 class DiscoveredVM(BaseModel):
     vm_name: str
     ip: str
+    ssh_port: int = 2222
+    container_id: str = ""
+    endpoint: str = ""
+    discovery_source: str = "label-scan"
     state: str
     workstation_id: Optional[str] = None
     agent_status: AgentStatus = AgentStatus.NOT_DEPLOYED
@@ -190,7 +197,8 @@ class DiscoveredVM(BaseModel):
 class PushWorkstationRequest(BaseModel):
     ip: str = ""
     vm_name: str = ""
-    ssh_user: str = "ubuntu"
+    ssh_port: int = 0
+    ssh_user: str = "developer"
     reviewer_initials: str = Field(..., min_length=1)
 
     @model_validator(mode="after")
@@ -199,6 +207,14 @@ class PushWorkstationRequest(BaseModel):
             raise ValueError("Either ip or vm_name must be provided")
         return self
 
+
+
+
+class RegisterWorkstationRequest(BaseModel):
+    hostname: str
+    container_id: str = ""
+    host_ssh_port: int = 2222
+    ip: str = "127.0.0.1"
 
 class HeartbeatRequest(BaseModel):
     shim_version: str = "0.1.0"

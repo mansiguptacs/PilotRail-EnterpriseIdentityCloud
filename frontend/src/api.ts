@@ -77,6 +77,7 @@ export function discoverWorkstations(): Promise<DiscoveredVM[]> {
 export function pushWorkstation(payload: {
   ip?: string;
   vm_name?: string;
+  ssh_port?: number;
   ssh_user?: string;
   reviewer_initials: string;
 }): Promise<Workstation> {

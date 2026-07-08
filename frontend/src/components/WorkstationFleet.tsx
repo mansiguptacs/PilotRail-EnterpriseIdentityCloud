@@ -29,15 +29,28 @@ export default function WorkstationFleet({
   onRefresh,
 }: Props) {
   const [initials, setInitials] = useState("SEC");
-  const [manualIp, setManualIp] = useState("");
-  const [manualVm, setManualVm] = useState("");
+  const [manualEndpoint, setManualEndpoint] = useState("");
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const onlineCount = workstations.filter((w) => w.agent_status === "ONLINE").length;
   const deployedCount = workstations.filter((w) => w.state === "DEPLOYED").length;
 
-  async function handleDeploy(target: { ip?: string; vm_name?: string }) {
+  function parseEndpoint(raw: string): { ip: string; ssh_port: number } {
+    const trimmed = raw.trim();
+    if (!trimmed) return { ip: "", ssh_port: 2222 };
+    if (trimmed.includes(":")) {
+      const [ip, port] = trimmed.split(":");
+      return { ip, ssh_port: parseInt(port, 10) || 2222 };
+    }
+    return { ip: trimmed, ssh_port: 2222 };
+  }
+
+  async function handleDeploy(target: {
+    ip?: string;
+    vm_name?: string;
+    ssh_port?: number;
+  }) {
     if (!initials.trim()) {
       setError("Reviewer initials required");
       return;
@@ -49,7 +62,7 @@ export default function WorkstationFleet({
       await pushWorkstation({
         ...target,
         reviewer_initials: initials.trim(),
-        ssh_user: "ubuntu",
+        ssh_user: "developer",
       });
       await onRefresh();
     } catch (err) {
@@ -96,77 +109,78 @@ export default function WorkstationFleet({
             onChange={(e) => setInitials(e.target.value)}
           />
           <input
-            placeholder="Manual IP (optional)"
-            value={manualIp}
-            onChange={(e) => setManualIp(e.target.value)}
-          />
-          <input
-            placeholder="VM name (optional)"
-            value={manualVm}
-            onChange={(e) => setManualVm(e.target.value)}
+            placeholder="Manual endpoint e.g. 127.0.0.1:2222 (optional)"
+            value={manualEndpoint}
+            onChange={(e) => setManualEndpoint(e.target.value)}
           />
           <button
             className="btn-deploy"
-            disabled={!!loading || (!manualIp && !manualVm)}
-            onClick={() =>
-              handleDeploy({
-                ip: manualIp || undefined,
-                vm_name: manualVm || undefined,
-              })
-            }
+            disabled={!!loading || !manualEndpoint.trim()}
+            onClick={() => {
+              const { ip, ssh_port } = parseEndpoint(manualEndpoint);
+              handleDeploy({ ip, ssh_port });
+            }}
           >
-            Deploy to IP
+            Deploy to Endpoint
           </button>
         </div>
         {error && <div className="fleet-error">{error}</div>}
       </div>
 
       <div className="fleet-section">
-        <h3>Discovered VMs (Multipass)</h3>
+        <h3>Discovered Workstations (Docker)</h3>
         {discovered.length === 0 ? (
           <div className="empty-state">
-            No running VMs found. Run: bash scripts/provision-dev-vm.sh
+            No containers found. Run: bash scripts/provision-dev-container.sh
           </div>
         ) : (
           <table className="fleet-table">
             <thead>
               <tr>
-                <th>VM Name</th>
-                <th>IP</th>
+                <th>Name</th>
+                <th>Endpoint</th>
+                <th>Discovery</th>
                 <th>Agent</th>
                 <th>Deploy State</th>
                 <th>Action</th>
               </tr>
             </thead>
             <tbody>
-              {discovered.map((vm) => (
-                <tr key={`${vm.vm_name}-${vm.ip}`}>
-                  <td>{vm.vm_name || "—"}</td>
-                  <td>{vm.ip}</td>
+              {discovered.map((ws) => (
+                <tr key={`${ws.vm_name}-${ws.endpoint}`}>
+                  <td>{ws.vm_name || "—"}</td>
+                  <td>{ws.endpoint || `${ws.ip}:${ws.ssh_port}`}</td>
                   <td>
-                    <span className={`status-badge ${statusClass(vm.agent_status)}`}>
-                      {vm.agent_status}
+                    <span className="status-badge">{ws.discovery_source}</span>
+                  </td>
+                  <td>
+                    <span className={`status-badge ${statusClass(ws.agent_status)}`}>
+                      {ws.agent_status}
                     </span>
                   </td>
                   <td>
-                    <span className={`status-badge ${statusClass(vm.deploy_state)}`}>
-                      {vm.deploy_state}
+                    <span className={`status-badge ${statusClass(ws.deploy_state)}`}>
+                      {ws.deploy_state}
                     </span>
                   </td>
                   <td>
-                    {vm.deploy_state !== "DEPLOYED" && vm.deploy_state !== "DEPLOYING" ? (
+                    {ws.deploy_state !== "DEPLOYED" && ws.deploy_state !== "DEPLOYING" ? (
                       <button
                         className="btn-deploy"
                         disabled={!!loading}
                         onClick={() =>
-                          handleDeploy({ ip: vm.ip, vm_name: vm.vm_name })
+                          handleDeploy({
+                            ip: ws.ip,
+                            vm_name: ws.vm_name,
+                            ssh_port: ws.ssh_port,
+                          })
                         }
                       >
-                        {loading === (vm.vm_name || vm.ip) ? "Deploying…" : "Deploy Gate"}
+                        {loading === (ws.vm_name || ws.ip) ? "Deploying…" : "Deploy Gate"}
                       </button>
                     ) : (
                       <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>
-                        {vm.deploy_state === "DEPLOYING" ? "Deploying…" : "Deployed"}
+                        {ws.deploy_state === "DEPLOYING" ? "Deploying…" : "Deployed"}
                       </span>
                     )}
                   </td>
@@ -186,7 +200,7 @@ export default function WorkstationFleet({
             <thead>
               <tr>
                 <th>Host</th>
-                <th>IP</th>
+                <th>Endpoint</th>
                 <th>Agent</th>
                 <th>Gate</th>
                 <th>Last Seen</th>
@@ -198,7 +212,10 @@ export default function WorkstationFleet({
               {workstations.map((ws) => (
                 <tr key={ws.id}>
                   <td>{ws.hostname || ws.vm_name || "—"}</td>
-                  <td>{ws.ip}</td>
+                  <td>
+                    {ws.ip}
+                    {ws.ssh_port ? `:${ws.ssh_port}` : ""}
+                  </td>
                   <td>
                     <span className={`status-badge ${statusClass(ws.agent_status)}`}>
                       {ws.agent_status}

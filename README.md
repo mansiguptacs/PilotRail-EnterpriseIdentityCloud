@@ -96,50 +96,58 @@ When a change is blocked, the terminal **never waits** for a human:
 
 Rejected plans fail fast on re-apply with the reviewer's reason. Approved plans proceed to real `terraform apply`.
 
-## Enterprise VM Demo (IT agent push)
+## Enterprise Container Demo (IT agent push)
 
-Simulate a managed developer workstation with Multipass on the same machine.
+Simulate a managed developer environment with Docker — portable on Mac M3, Linux, or any machine with Docker.
 
 ### Setup
 
 ```bash
-# One-time: install Multipass + launch blank VM (minimal: 1 CPU, 1G RAM, 5G disk)
-sudo snap install multipass
-bash scripts/provision-dev-vm.sh
-# Optional overrides: VM_CPUS=1 VM_MEMORY=512M VM_DISK=4G bash scripts/provision-dev-vm.sh
+# Prerequisites: Docker Desktop (Mac/Windows) or docker (Linux)
+bash scripts/provision-dev-container.sh
+bash scripts/demo-preflight.sh
 
-# Host: start control plane (bind all interfaces for VM access)
+# Host: start control plane (bind all interfaces for container access)
 cd backend && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 cd frontend && npm run dev
 ```
 
-### VM operations
+### Container operations
 
 ```bash
-bash scripts/vm-ops.sh start      # boot VM
-bash scripts/vm-ops.sh shell      # developer terminal
-bash scripts/vm-ops.sh agent-log  # tail IT deploy notifications
-bash scripts/vm-ops.sh ip         # VM IP for dashboard
+bash scripts/container-ops.sh start      # start pilot-dev
+bash scripts/container-ops.sh shell      # developer terminal
+bash scripts/container-ops.sh agent-log  # tail IT deploy notifications
+bash scripts/container-ops.sh status     # container + SSH port 2222
 ```
+
+### Discovery
+
+Workstations appear automatically via three layers:
+1. **Label scan** — `docker ps` finds containers with `pilot-rail.io/managed=true`
+2. **Self-registration** — container beacons to `POST /api/workstations/register` on startup
+3. **Agent heartbeat** — runtime ONLINE/STALE/OFFLINE after IT deploy
+
+Default SSH endpoint: `127.0.0.1:2222` (IT admin pushes via SSH; `docker exec` is automatic fallback).
 
 ### Interview flow (two panes)
 
 | Pane | Content |
 |------|---------|
 | Browser | Workstations tab — fleet view + one-click Deploy Gate |
-| Terminal | `multipass shell pilot-dev` + optional `vm-ops.sh agent-log` |
+| Terminal | `bash scripts/container-ops.sh shell` + optional `agent-log` |
 
 **Scene A — IT pushes agent**
-1. Workstations tab shows discovered `pilot-dev` VM (NOT_DEPLOYED)
+1. Workstations tab shows discovered `pilot-dev` container (NOT_DEPLOYED)
 2. Click **Deploy Gate** (one click) as SEC
-3. VM shows notification in agent log + shell banner
+3. Container shows notification in agent log + shell banner
 4. `which terraform` → `~/.pilot-rail/shim/terraform`
 
 **Scene B — Terraform intercept**
-1. In VM: `cd ~/demo-workspace && cp scenarios/risky_contractor_admin.tf main.tf`
+1. In container: `cd ~/demo-workspace && cp scenarios/risky_contractor_admin.tf main.tf`
 2. `terraform apply` → fail fast → approve in dashboard → re-run apply
 
-**Talk track:** "Security pushes the sanctioned wrapper like Intune/SCCM — fleet observability shows agent online/offline."
+**Talk track:** "Security pushes the sanctioned apply gate into the managed dev container — same pattern as platform-mandated dev environments."
 
 ## Live Demo Script (for interview)
 
@@ -198,13 +206,15 @@ Approve if routed to review. Audit log shows `AUTO_APPROVE`, `NOTIFY_APPROVER`, 
 ├── frontend/             # React reviewer dashboard (queue, notifications, audit)
 ├── cli/shim/terraform    # Apply gate wrapper (put on PATH via enable-gate.sh)
 ├── demo-workspace/       # Customer Terraform repo for live demo
+├── demo-container/       # Ubuntu dev workstation image (sshd + beacon)
+├── docker-compose.yml    # pilot-dev managed workstation
 ├── scripts/
-│   ├── install-terraform.sh  # Download terraform to backend/bin/
-│   ├── enable-gate.sh        # Enable shim + verify backend (source this)
-│   ├── provision-dev-vm.sh   # Launch Multipass pilot-dev VM
-│   ├── vm-ops.sh             # start/stop/shell/ip/agent-log
-│   ├── host-api-url.sh       # Host IP reachable from VM
-│   └── demo-risky.sh         # Fail-fast risky scenario helper
+│   ├── install-terraform.sh       # Download terraform to backend/bin/
+│   ├── enable-gate.sh             # Enable shim + verify backend (source this)
+│   ├── provision-dev-container.sh # Build + start pilot-dev container
+│   ├── container-ops.sh           # start/stop/shell/agent-log/status
+│   ├── demo-preflight.sh          # Portable demo readiness checks
+│   └── demo-risky.sh              # Fail-fast risky scenario helper
 ├── cli/agent/                # pilot-rail-agent, remote-install.sh
 └── cli/README.md         # Shim setup, env vars, and demo commands
 ```
@@ -219,7 +229,8 @@ Approve if routed to review. Audit log shows `AUTO_APPROVE`, `NOTIFY_APPROVER`, 
 | `POST` | `/api/plans/{id}/reject` | Reject with comment |
 | `GET` | `/api/notifications` | Mock notification feed |
 | `GET` | `/api/workstations` | Fleet list with agent status |
-| `GET` | `/api/workstations/discover` | Discover running Multipass VMs |
+| `GET` | `/api/workstations/discover` | Discover managed Docker workstations |
+| `POST` | `/api/workstations/register` | Container self-registration beacon |
 | `POST` | `/api/workstations/push` | IT admin one-click shim deploy |
 | `POST` | `/api/workstations/{id}/heartbeat` | Agent heartbeat |
 | `POST` | `/api/workstations/{id}/revoke` | Revoke gate on workstation |

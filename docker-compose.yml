@@ -1,0 +1,17 @@
+services:
+  pilot-dev:
+    build: ./demo-container
+    container_name: pilot-dev
+    hostname: pilot-dev
+    ports:
+      - "2222:22"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - PILOT_CONTAINER_NAME=pilot-dev
+      - PILOT_HOST_SSH_PORT=2222
+      - PILOT_HOST_API_URL=http://host.docker.internal:8000
+    labels:
+      - "pilot-rail.io/role=workstation"
+      - "pilot-rail.io/managed=true"
+    restart: unless-stopped

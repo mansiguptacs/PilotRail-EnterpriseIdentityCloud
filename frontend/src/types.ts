@@ -87,6 +87,9 @@ export interface Workstation {
   hostname: string;
   vm_name: string;
   ssh_user: string;
+  container_id?: string;
+  ssh_port?: number;
+  discovery_source?: string;
   state: WorkstationState;
   agent_status: AgentStatus;
   last_seen_at: string | null;
@@ -103,6 +106,10 @@ export interface Workstation {
 export interface DiscoveredVM {
   vm_name: string;
   ip: string;
+  ssh_port: number;
+  container_id: string;
+  endpoint: string;
+  discovery_source: string;
   state: string;
   workstation_id: string | null;
   agent_status: AgentStatus;

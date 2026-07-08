@@ -14,62 +14,44 @@ from app.store import (
     save_workstation_notification,
     update_workstation,
 )
-from app.vm_discovery import get_vm_ip
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SHIM_VERSION = "0.1.0"
 SSH_KEY = REPO_ROOT / "demo-vm" / "keys" / "pilot_push_key"
+DEFAULT_SSH_PORT = 2222
+DEFAULT_SSH_USER = "developer"
+REMOTE_BUNDLE = "/home/developer/pilot-rail-bundle.tar.gz"
 PUSH_TRANSPORT = os.getenv("PUSH_TRANSPORT", "auto")
 
 
-def detect_host_api_url() -> str:
+def detect_container_api_url() -> str:
     env_url = os.getenv("PILOT_HOST_API_URL", "").strip()
     if env_url:
         return env_url.rstrip("/")
-    try:
-        script = REPO_ROOT / "scripts" / "host-api-url.sh"
-        if script.exists():
-            result = subprocess.run(
-                [str(script)],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                return result.stdout.strip().rstrip("/")
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
-    return "http://127.0.0.1:8000"
+    return "http://host.docker.internal:8000"
 
 
-def _multipass_available() -> bool:
-    return shutil.which("multipass") is not None
+def _docker_available() -> bool:
+    return shutil.which("docker") is not None
 
 
 def _run(cmd: list[str], timeout: int = 120) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
 
-def _multipass_exec(vm_name: str, remote_cmd: str) -> None:
-    result = _run(["multipass", "exec", vm_name, "--", "bash", "-lc", remote_cmd])
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr or result.stdout or "multipass exec failed")
-
-
-def _multipass_transfer(local: Path, vm_name: str, remote: str) -> None:
-    result = _run(["multipass", "transfer", str(local), f"{vm_name}:{remote}"])
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr or result.stdout or "multipass transfer failed")
-
-
-def _ssh_exec(ip: str, user: str, remote_cmd: str) -> None:
+def _ssh_exec(ip: str, user: str, remote_cmd: str, port: int = 22) -> None:
     if not SSH_KEY.exists():
         raise RuntimeError(f"SSH key not found: {SSH_KEY}")
     cmd = [
         "ssh",
-        "-i", str(SSH_KEY),
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
+        "-i",
+        str(SSH_KEY),
+        "-p",
+        str(port),
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
         f"{user}@{ip}",
         remote_cmd,
     ]
@@ -78,23 +60,58 @@ def _ssh_exec(ip: str, user: str, remote_cmd: str) -> None:
         raise RuntimeError(result.stderr or result.stdout or "ssh exec failed")
 
 
-def _scp_to(ip: str, user: str, local: Path, remote: str) -> None:
+def _scp_to(ip: str, user: str, local: Path, remote: str, port: int = 22) -> None:
     if not SSH_KEY.exists():
         raise RuntimeError(f"SSH key not found: {SSH_KEY}")
     cmd = [
         "scp",
-        "-i", str(SSH_KEY),
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-r", str(local), f"{user}@{ip}:{remote}",
+        "-i",
+        str(SSH_KEY),
+        "-P",
+        str(port),
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
+        str(local),
+        f"{user}@{ip}:{remote}",
     ]
     result = _run(cmd, timeout=180)
     if result.returncode != 0:
         raise RuntimeError(result.stderr or result.stdout or "scp failed")
 
 
+def _docker_exec(container: str, remote_cmd: str, user: str = DEFAULT_SSH_USER) -> None:
+    result = _run(
+        ["docker", "exec", "-u", user, container, "bash", "-lc", remote_cmd],
+        timeout=300,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr or result.stdout or "docker exec failed")
+
+
+def _docker_cp(local: Path, container: str, remote: str) -> None:
+    result = _run(["docker", "cp", str(local), f"{container}:{remote}"], timeout=180)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr or result.stdout or "docker cp failed")
+
+
+def _try_ssh_push(
+    ip: str,
+    user: str,
+    port: int,
+    bundle: Path,
+    install_cmd: str,
+) -> bool:
+    try:
+        _scp_to(ip, user, bundle, "~/pilot-rail-bundle.tar.gz", port=port)
+        _ssh_exec(ip, user, install_cmd, port=port)
+        return True
+    except Exception:
+        return False
+
+
 def _build_bundle() -> Path:
-    # multipass (snap) cannot read arbitrary /tmp paths — stage under repo
     staging = REPO_ROOT / "demo-vm" / "staging"
     staging.mkdir(parents=True, exist_ok=True)
     bundle = staging / "pilot-rail-bundle.tar.gz"
@@ -133,35 +150,105 @@ def _remote_install_cmd(host_api: str, workstation_id: str, deployed_by: str) ->
     )
 
 
+def _push_bundle(
+    *,
+    ip: str,
+    container_name: str,
+    ssh_user: str,
+    ssh_port: int,
+    bundle: Path,
+    install_cmd: str,
+) -> None:
+    if PUSH_TRANSPORT == "docker":
+        if not container_name:
+            raise RuntimeError("container name required for docker push transport")
+        _docker_cp(bundle, container_name, REMOTE_BUNDLE)
+        _docker_exec(container_name, install_cmd, user=ssh_user)
+        return
+
+    if PUSH_TRANSPORT == "ssh":
+        _scp_to(ip, ssh_user, bundle, "~/pilot-rail-bundle.tar.gz", port=ssh_port)
+        _ssh_exec(ip, ssh_user, install_cmd, port=ssh_port)
+        return
+
+    # auto: SSH first, docker exec fallback for managed containers
+    if container_name and _try_ssh_push(ip, ssh_user, ssh_port, bundle, install_cmd):
+        return
+    if container_name and _docker_available():
+        _docker_cp(bundle, container_name, REMOTE_BUNDLE)
+        _docker_exec(container_name, install_cmd, user=ssh_user)
+        return
+    if ip:
+        _scp_to(ip, ssh_user, bundle, "~/pilot-rail-bundle.tar.gz", port=ssh_port)
+        _ssh_exec(ip, ssh_user, install_cmd, port=ssh_port)
+        return
+    raise RuntimeError("No reachable push target (SSH and docker both failed)")
+
+
+def _revoke_remote(
+    *,
+    ip: str,
+    container_name: str,
+    ssh_user: str,
+    ssh_port: int,
+    stop_cmd: str,
+) -> None:
+    if container_name and _docker_available():
+        try:
+            _docker_exec(container_name, stop_cmd, user=ssh_user)
+            return
+        except Exception:
+            pass
+    if ip:
+        try:
+            _ssh_exec(ip, ssh_user, stop_cmd, port=ssh_port)
+        except Exception:
+            pass
+
+
 def push_to_workstation(
     ip: str,
     vm_name: str,
     ssh_user: str,
+    ssh_port: int,
     reviewer_initials: str,
 ) -> dict:
-    if vm_name and not ip:
-        ip = get_vm_ip(vm_name) or ""
-    if not ip and not vm_name:
-        raise ValueError("ip or vm_name required")
+    container_name = vm_name
+    if not ip and container_name:
+        ip = "127.0.0.1"
+    if not ssh_port:
+        ssh_port = DEFAULT_SSH_PORT
+    if not ssh_user:
+        ssh_user = DEFAULT_SSH_USER
+    if not ip and not container_name:
+        raise ValueError("ip or vm_name (container name) required")
 
-    ws = create_workstation(ip=ip, vm_name=vm_name, ssh_user=ssh_user)
-    update_workstation(ws.id, state=WorkstationState.DEPLOYING, last_error=None)
+    ws = create_workstation(
+        ip=ip,
+        vm_name=container_name,
+        hostname=container_name or ip,
+        ssh_user=ssh_user,
+    )
+    update_workstation(
+        ws.id,
+        state=WorkstationState.DEPLOYING,
+        ssh_port=ssh_port,
+        last_error=None,
+    )
 
-    host_api = detect_host_api_url()
+    host_api = detect_container_api_url()
     bundle = _build_bundle()
     install_cmd = _remote_install_cmd(host_api, ws.id, reviewer_initials)
 
     try:
-        use_multipass = (
-            PUSH_TRANSPORT == "multipass"
-            or (PUSH_TRANSPORT == "auto" and vm_name and _multipass_available())
+        _push_bundle(
+            ip=ip,
+            container_name=container_name,
+            ssh_user=ssh_user,
+            ssh_port=ssh_port,
+            bundle=bundle,
+            install_cmd=install_cmd,
         )
-        if use_multipass and vm_name:
-            _multipass_transfer(bundle, vm_name, "/home/ubuntu/pilot-rail-bundle.tar.gz")
-            _multipass_exec(vm_name, install_cmd)
-        else:
-            _scp_to(ip, ssh_user, bundle, "~/pilot-rail-bundle.tar.gz")
-            _ssh_exec(ip, ssh_user, install_cmd)
 
         update_workstation(
             ws.id,
@@ -170,7 +257,7 @@ def push_to_workstation(
             deployed_at=utc_now(),
             shim_version=SHIM_VERSION,
             gate_active=True,
-            hostname=vm_name or ip,
+            hostname=container_name or ip,
             last_error=None,
         )
         save_workstation_notification(
@@ -185,7 +272,7 @@ def push_to_workstation(
             reviewer_initials=reviewer_initials,
             previous_state=PlanState.PENDING_REVIEW,
             new_state=PlanState.PENDING_REVIEW,
-            comment=f"Deployed to {ip or vm_name}",
+            comment=f"Deployed to {ip}:{ssh_port} ({container_name or 'manual'})",
         )
         return get_workstation(ws.id).model_dump(mode="json")  # type: ignore[union-attr]
     except Exception as exc:
@@ -202,13 +289,13 @@ def revoke_workstation(workstation_id: str, reviewer_initials: str) -> None:
         'if [[ -f ~/.pilot-rail/agent.pid ]]; then kill "$(cat ~/.pilot-rail/agent.pid)" 2>/dev/null; fi; '
         'sed -i "/pilot-rail/d" ~/.bashrc 2>/dev/null || true'
     )
-    try:
-        if ws.vm_name and _multipass_available():
-            _multipass_exec(ws.vm_name, stop_cmd)
-        elif ws.ip:
-            _ssh_exec(ws.ip, ws.ssh_user, stop_cmd)
-    except Exception:
-        pass
+    _revoke_remote(
+        ip=ws.ip,
+        container_name=ws.vm_name,
+        ssh_user=ws.ssh_user or DEFAULT_SSH_USER,
+        ssh_port=ws.ssh_port or DEFAULT_SSH_PORT,
+        stop_cmd=stop_cmd,
+    )
 
     update_workstation(
         workstation_id,

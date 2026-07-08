@@ -40,18 +40,45 @@ fi
 
 chmod +x "$PILOT_HOME/shim/terraform" "$PILOT_HOME/agent/pilot-rail-agent" "$PILOT_HOME/agent/pilot-rail-show-notice" 2>/dev/null || true
 
-# Enable gate on shell start
-GATE_HOOK='source "$HOME/.pilot-rail/enable-gate.sh" 2>/dev/null || true'
+# Standard workspace path developers expect (demo-workspace -> IT-pushed workspace)
+if [[ -L "$HOME/demo-workspace" ]] || [[ -d "$HOME/demo-workspace" && -z "$(ls -A "$HOME/demo-workspace" 2>/dev/null)" ]]; then
+  rm -rf "$HOME/demo-workspace" 2>/dev/null || true
+fi
+if [[ ! -e "$HOME/demo-workspace" ]]; then
+  ln -sfn "$PILOT_HOME/workspace" "$HOME/demo-workspace"
+fi
+
+# Enable gate on shell start (interactive bash)
+GATE_HOOK='[[ $- == *i* ]] && source "$HOME/.pilot-rail/enable-gate.sh" 2>/dev/null || true'
 if ! grep -q "pilot-rail/enable-gate" "$HOME/.bashrc" 2>/dev/null; then
   echo "$GATE_HOOK" >> "$HOME/.bashrc"
 fi
 
-# enable-gate.sh on remote
+# enable-gate.sh on remote — sourced automatically from .bashrc on every shell
 cat > "$PILOT_HOME/enable-gate.sh" <<'GATEEOF'
 #!/usr/bin/env bash
-source "$HOME/.pilot-rail/config.env"
+# Pilot Rail enterprise apply gate (IT-deployed shim on PATH)
+if [[ -n "${PILOT_RAIL_GATE_LOADED:-}" ]]; then
+  return 0 2>/dev/null || exit 0
+fi
+export PILOT_RAIL_GATE_LOADED=1
+
+if [[ -f "$HOME/.pilot-rail/config.env" ]]; then
+  # shellcheck source=/dev/null
+  source "$HOME/.pilot-rail/config.env"
+fi
 export PATH="$HOME/.pilot-rail/shim:$PATH"
 export PILOT_REAL_TERRAFORM="${PILOT_REAL_TERRAFORM:-$HOME/.pilot-rail/bin/terraform}"
+
+if [[ $- == *i* ]]; then
+  deployed_by="$(python3 -c "import json,pathlib; d=json.loads(pathlib.Path.home().joinpath('.pilot-rail/installed.json').read_text()); print(d.get('deployed_by','IT'))" 2>/dev/null || echo IT)"
+  echo ""
+  echo "[pilot-rail] Enterprise-managed Terraform is active on this workstation."
+  echo "[pilot-rail] Deployed by: ${deployed_by}  |  terraform: $(command -v terraform)"
+  echo "[pilot-rail] terraform apply is governed — changes require Pilot Rail approval."
+  echo ""
+  cd "$HOME/.pilot-rail/workspace" 2>/dev/null || cd "$HOME/demo-workspace" 2>/dev/null || true
+fi
 GATEEOF
 chmod +x "$PILOT_HOME/enable-gate.sh"
 
@@ -78,6 +105,7 @@ if ! grep -q "pilot-rail-show-notice" "$HOME/.bashrc" 2>/dev/null; then
 fi
 
 # Installed manifest
+rm -f "$PILOT_HOME/.notice_shown" 2>/dev/null || true
 cat > "$PILOT_HOME/installed.json" <<EOF
 {
   "deployed_by": "$DEPLOYED_BY",

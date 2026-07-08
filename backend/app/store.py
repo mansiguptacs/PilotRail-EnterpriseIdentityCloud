@@ -373,7 +373,10 @@ def create_workstation(
     ip: str,
     vm_name: str = "",
     hostname: str = "",
-    ssh_user: str = "ubuntu",
+    ssh_user: str = "developer",
+    container_id: str = "",
+    ssh_port: int = 2222,
+    discovery_source: str = "",
 ) -> Workstation:
     now = utc_now()
     existing = find_workstation_by_ip_or_name(ip=ip, vm_name=vm_name)
@@ -385,6 +388,9 @@ def create_workstation(
         hostname=hostname or vm_name,
         vm_name=vm_name,
         ssh_user=ssh_user,
+        container_id=container_id,
+        ssh_port=ssh_port,
+        discovery_source=discovery_source,
         state=WorkstationState.PENDING_PUSH,
         agent_status=AgentStatus.NOT_DEPLOYED,
         created_at=now,
