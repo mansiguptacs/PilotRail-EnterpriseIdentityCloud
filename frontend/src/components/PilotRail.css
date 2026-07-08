@@ -3,6 +3,7 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  background: var(--surface);
 }
 
 .rail-section {
@@ -11,69 +12,75 @@
 }
 
 .rail-section h3 {
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
+  letter-spacing: 0.08em;
+  color: var(--text-subtle);
   margin-bottom: 0.5rem;
+  font-weight: 600;
 }
 
 .rail-section .prompt-text {
   font-size: 0.9375rem;
+  color: var(--text);
 }
 
 .rail-section .reasoning {
   font-size: 0.875rem;
   color: var(--text-muted);
-  font-style: italic;
 }
 
 .code-block {
   margin: 0 1.25rem;
   padding: 1rem;
-  background: var(--bg);
+  background: #f8f9fc;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   overflow-x: auto;
   font-size: 0.8125rem;
   line-height: 1.6;
   white-space: pre-wrap;
+  color: var(--text);
 }
 
 .code-block.rejected {
-  opacity: 0.5;
+  opacity: 0.55;
   text-decoration: line-through;
 }
 
 .meta-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 1rem;
   font-size: 0.75rem;
-  color: var(--text-muted);
+  color: var(--text-subtle);
   padding: 0.5rem 1.25rem;
 }
 
 .approval-controls {
   padding: 1rem 1.25rem;
   border-top: 1px solid var(--border);
-  background: var(--surface);
+  background: #fafbff;
 }
 
 .approval-controls h3 {
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
+  letter-spacing: 0.08em;
+  color: var(--text-subtle);
   margin-bottom: 0.75rem;
+  font-weight: 600;
 }
 
 .initials-field {
   margin-bottom: 0.75rem;
 }
 
-.initials-field label {
+.initials-field label,
+.reject-field label {
   display: block;
   font-size: 0.8125rem;
+  font-weight: 500;
   margin-bottom: 0.375rem;
   color: var(--text-muted);
 }
@@ -82,22 +89,22 @@
 .reject-field textarea {
   width: 100%;
   padding: 0.5rem 0.75rem;
-  background: var(--bg);
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text);
   font-size: 0.875rem;
 }
 
-.reject-field {
-  margin-bottom: 0.75rem;
+.initials-field input:focus,
+.reject-field textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(37, 53, 239, 0.12);
 }
 
-.reject-field label {
-  display: block;
-  font-size: 0.8125rem;
-  margin-bottom: 0.375rem;
-  color: var(--text-muted);
+.reject-field {
+  margin-bottom: 0.75rem;
 }
 
 .reject-field textarea {
@@ -114,14 +121,18 @@
 .btn-reject {
   padding: 0.625rem 1.5rem;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius);
   font-weight: 600;
   font-size: 0.875rem;
 }
 
 .btn-approve {
-  background: var(--approved);
-  color: white;
+  background: var(--saviynt-lime);
+  color: #0c0e1a;
+}
+
+.btn-approve:hover:not(:disabled) {
+  background: #00b300;
 }
 
 .btn-approve:disabled {
@@ -130,8 +141,13 @@
 }
 
 .btn-reject {
-  background: var(--rejected);
-  color: white;
+  background: var(--surface);
+  border: 1px solid var(--rejected);
+  color: var(--rejected);
+}
+
+.btn-reject:hover:not(:disabled) {
+  background: #fef2f2;
 }
 
 .btn-reject:disabled {
@@ -139,74 +155,21 @@
   cursor: not-allowed;
 }
 
-.disposition-banner {
-  padding: 1rem 1.25rem;
-  text-align: center;
-  font-weight: 500;
-}
-
-.disposition-banner.approved {
-  background: rgba(16, 185, 129, 0.15);
-  color: var(--approved);
-}
-
-.disposition-banner.rejected {
-  background: rgba(239, 68, 68, 0.15);
-  color: var(--rejected);
-}
-
-.disposition-banner.auto-approved {
-  background: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
-}
-
-.enforcement-banner {
-  margin: 0 1.25rem 1rem;
-  padding: 0.75rem 1rem;
-  border-radius: 6px;
-  display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.enforcement-banner.advisory {
-  background: rgba(16, 185, 129, 0.1);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  color: var(--approved);
-}
-
-.enforcement-banner.soft_mandatory {
-  background: rgba(245, 158, 11, 0.1);
-  border: 1px solid rgba(245, 158, 11, 0.3);
-  color: var(--pending);
-}
-
-.enforcement-banner.mandatory {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: var(--rejected);
-}
-
-.enforcement-label {
-  font-weight: 700;
-}
-
 .execution-panel {
   margin: 0 1.25rem 1rem;
   padding: 1rem;
-  background: var(--bg);
+  background: #f8f9fc;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 
 .execution-panel h3 {
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   text-transform: uppercase;
-  color: var(--text-muted);
+  letter-spacing: 0.08em;
+  color: var(--text-subtle);
   margin-bottom: 0.5rem;
+  font-weight: 600;
 }
 
 .execution-output {
@@ -215,6 +178,18 @@
   overflow: auto;
   white-space: pre-wrap;
   color: var(--text-muted);
+}
+
+.execution-empty {
+  font-size: 0.8125rem;
+  color: var(--text-subtle);
+}
+
+.approval-sticky {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  box-shadow: 0 -4px 20px rgba(12, 14, 26, 0.08);
 }
 
 .sod-note {

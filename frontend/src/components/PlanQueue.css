@@ -1,13 +1,45 @@
+.plan-queue-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.plan-queue-filters {
+  display: flex;
+  gap: 0.375rem;
+  padding: 0.625rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.plan-queue-filters button {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.plan-queue-filters button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .plan-queue {
   flex: 1;
   overflow-y: auto;
 }
 
 .plan-item {
-  padding: 0.875rem 1.25rem;
+  padding: 0.875rem 1rem;
   border-bottom: 1px solid var(--border);
   cursor: pointer;
   transition: background 0.15s;
+  border-left: 3px solid transparent;
 }
 
 .plan-item:hover {
@@ -15,90 +47,56 @@
 }
 
 .plan-item.selected {
-  background: var(--surface-hover);
-  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+}
+
+.plan-item.risk-critical.selected {
+  border-left-color: var(--rejected);
+  background: #fff5f5;
+}
+
+.plan-item.risk-high.selected {
+  border-left-color: var(--pending);
+  background: #fffbeb;
 }
 
 .plan-item-prompt {
   font-size: 0.875rem;
+  font-weight: 500;
   margin-bottom: 0.375rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--text);
 }
 
 .plan-item-meta {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.75rem;
-  color: var(--text-muted);
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-bottom: 0.25rem;
 }
 
-.state-badge {
-  padding: 0.125rem 0.5rem;
-  border-radius: 4px;
-  font-weight: 600;
+.finding-pill {
   font-size: 0.6875rem;
-  text-transform: uppercase;
-}
-
-.state-badge.pending {
-  background: rgba(245, 158, 11, 0.2);
   color: var(--pending);
+  font-weight: 500;
 }
 
-.state-badge.approved {
-  background: rgba(16, 185, 129, 0.2);
-  color: var(--approved);
-}
-
-.state-badge.auto-approved {
-  background: rgba(59, 130, 246, 0.2);
-  color: #60a5fa;
-}
-
-.source-badge {
-  font-size: 0.625rem;
-  padding: 0.125rem 0.375rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  color: var(--text-muted);
-}
-
-.risk-badge {
-  font-size: 0.625rem;
-  padding: 0.125rem 0.375rem;
-  border-radius: 3px;
-  text-transform: uppercase;
-  font-weight: 600;
-}
-
-.risk-badge.critical {
-  background: rgba(239, 68, 68, 0.2);
+.finding-pill.critical {
   color: var(--rejected);
 }
 
-.risk-badge.high {
-  background: rgba(245, 158, 11, 0.2);
-  color: var(--pending);
+.plan-item-sub {
+  font-size: 0.6875rem;
+  color: var(--text-subtle);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
 }
 
-.risk-badge.medium,
-.risk-badge.low {
-  background: rgba(16, 185, 129, 0.15);
-  color: var(--approved);
-}
-
-.state-badge.rejected {
-  background: rgba(239, 68, 68, 0.2);
-  color: var(--rejected);
-}
-
-.warning-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--rejected);
+.plan-item-sub .sep {
+  opacity: 0.4;
 }

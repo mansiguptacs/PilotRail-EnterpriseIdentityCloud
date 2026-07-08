@@ -1,5 +1,5 @@
 .prompt-bar {
-  padding: 1rem 1.25rem;
+  padding: 1rem 1.125rem;
   border-bottom: 1px solid var(--border);
 }
 
@@ -11,9 +11,9 @@
 .prompt-bar input {
   flex: 1;
   padding: 0.625rem 0.875rem;
-  background: var(--bg);
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text);
   font-size: 0.875rem;
 }
@@ -21,16 +21,21 @@
 .prompt-bar input:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(37, 53, 239, 0.12);
 }
 
 .prompt-bar button {
   padding: 0.625rem 1.25rem;
   background: var(--accent);
   border: none;
-  border-radius: 6px;
-  color: white;
-  font-weight: 500;
+  border-radius: var(--radius);
+  color: #fff;
+  font-weight: 600;
   font-size: 0.875rem;
+}
+
+.prompt-bar button:hover:not(:disabled) {
+  background: var(--accent-hover);
 }
 
 .prompt-bar button:disabled {

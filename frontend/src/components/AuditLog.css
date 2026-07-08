@@ -1,7 +1,7 @@
 .audit-log {
   flex: 1;
   overflow: auto;
-  padding: 1rem 1.5rem;
+  padding: 0.5rem 0;
 }
 
 .audit-table {
@@ -12,17 +12,20 @@
 
 .audit-table th {
   text-align: left;
-  padding: 0.75rem;
+  padding: 0.75rem 1.25rem;
   border-bottom: 2px solid var(--border);
-  color: var(--text-muted);
-  font-size: 0.75rem;
+  color: var(--text-subtle);
+  font-size: 0.6875rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  background: var(--surface-hover);
 }
 
 .audit-table td {
-  padding: 0.75rem;
+  padding: 0.75rem 1.25rem;
   border-bottom: 1px solid var(--border);
+  color: var(--text);
 }
 
 .audit-table tr:hover td {
@@ -30,7 +33,7 @@
 }
 
 .action-approve {
-  color: var(--approved);
+  color: #006600;
   font-weight: 600;
 }
 
@@ -39,8 +42,37 @@
   font-weight: 600;
 }
 
-.plan-id-cell {
+.action-notify {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.action-execute {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.action-agent {
+  color: var(--pending);
+  font-weight: 600;
+}
+
+.action-neutral {
+  color: var(--text-muted);
+}
+
+.plan-link {
   font-family: var(--font-mono);
   font-size: 0.75rem;
-  color: var(--text-muted);
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.plan-link:hover {
+  color: var(--saviynt-blue-dark);
 }

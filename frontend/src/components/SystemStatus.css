@@ -1,0 +1,82 @@
+.system-status {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.system-status-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 1.5rem;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  text-align: left;
+}
+
+.system-status-toggle:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.system-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.system-status-dot.healthy {
+  background: var(--saviynt-lime);
+}
+
+.system-status-dot.degraded {
+  background: var(--pending);
+}
+
+.system-status-dot.down {
+  background: var(--rejected);
+}
+
+.system-status-summary {
+  flex: 1;
+}
+
+.system-status-chevron {
+  font-size: 0.625rem;
+  opacity: 0.5;
+}
+
+.system-status-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  background: var(--surface-hover);
+}
+
+.system-status-table th {
+  text-align: left;
+  padding: 0.5rem 1.5rem;
+  color: var(--text-subtle);
+  font-weight: 600;
+  border-top: 1px solid var(--border);
+}
+
+.system-status-table td {
+  padding: 0.5rem 1.5rem;
+  border-top: 1px solid var(--border);
+  vertical-align: top;
+  color: var(--text);
+}
+
+.detail-cell {
+  color: var(--text-muted);
+  max-width: 28rem;
+}
+
+.time-cell {
+  color: var(--text-subtle);
+  white-space: nowrap;
+}

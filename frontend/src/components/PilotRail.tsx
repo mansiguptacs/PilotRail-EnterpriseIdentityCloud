@@ -1,8 +1,8 @@
 import { useState } from "react";
 import type { Plan } from "../types";
 import PilotAgentPanel from "./PilotAgentPanel";
+import PlanHeader from "./PlanHeader";
 import SecurityAlert from "./SecurityAlert";
-import StateTimeline from "./StateTimeline";
 import "./PilotRail.css";
 
 interface Props {
@@ -28,18 +28,11 @@ export default function PilotRail({ plan, onApprove, onReject, actionLoading }: 
 
   return (
     <div className="pilot-rail">
-      <StateTimeline currentState={plan.state} />
+      <PlanHeader plan={plan} />
 
-      <div className={`enforcement-banner ${plan.enforcement_level}`}>
-        <span className="enforcement-label">{plan.enforcement_level.replace("_", " ")}</span>
-        <span>Risk: {plan.risk_tier}</span>
-        <span>Requester: {plan.requester}</span>
-        <span>Source: {plan.source}</span>
-      </div>
+      {plan.findings.length > 0 && <SecurityAlert findings={plan.findings} />}
 
-      <PilotAgentPanel plan={plan} />
-
-      {plan.security_warning && <SecurityAlert findings={plan.findings} />}
+      {(isPending || plan.pilot_guidance.message) && <PilotAgentPanel plan={plan} />}
 
       <div className="rail-section">
         <h3>Request</h3>
@@ -56,52 +49,41 @@ export default function PilotRail({ plan, onApprove, onReject, actionLoading }: 
       <div className="meta-row">
         <span>Generator: {plan.model}</span>
         <span>Scanner: {plan.scan_model}</span>
-        <span>Hash: {plan.context_packet_hash.slice(0, 12)}...</span>
+        <span title={plan.context_packet_hash}>Hash: {plan.context_packet_hash.slice(0, 12)}…</span>
       </div>
 
       <pre className={`code-block ${plan.state === "REJECTED" ? "rejected" : ""}`}>
         {plan.code}
       </pre>
 
-      {plan.state === "AUTO_APPROVED" && (
-        <div className="disposition-banner auto-approved">
-          Auto-approved by policy engine
-        </div>
-      )}
-
-      {plan.state === "APPROVED" && (
-        <div className="disposition-banner approved">
-          Approved by {plan.reviewer_initials}
-        </div>
-      )}
-
-      {plan.state === "REJECTED" && (
-        <div className="disposition-banner rejected">
-          Rejected by {plan.reviewer_initials}: {plan.reject_comment}
-        </div>
-      )}
-
-      {plan.execution_status !== "not_started" && plan.execution_output && (
+      {plan.execution_status !== "not_started" && (
         <div className="execution-panel">
-          <h3>Terraform Execution ({plan.execution_status})</h3>
-          <pre className="execution-output">{plan.execution_output}</pre>
+          <h3>
+            Terraform execution — {plan.execution_status}
+            {plan.execution_exit_code != null && ` (exit ${plan.execution_exit_code})`}
+          </h3>
+          {plan.execution_output ? (
+            <pre className="execution-output">{plan.execution_output}</pre>
+          ) : (
+            <p className="execution-empty">No output captured.</p>
+          )}
         </div>
       )}
 
       {isPending && (
-        <div className="approval-controls">
-          <h3>Human Review Gate</h3>
+        <div className="approval-controls approval-sticky">
+          <h3>Human review gate</h3>
           <p className="sod-note">
             Approver must differ from requester ({plan.requester}) — separation of duties.
           </p>
           <div className="initials-field">
-            <label htmlFor="initials">Reviewer Initials</label>
+            <label htmlFor="initials">Reviewer initials</label>
             <input
               id="initials"
               type="text"
               value={initials}
               onChange={(e) => setInitials(e.target.value)}
-              placeholder="e.g. SEC (not the requester)"
+              placeholder="e.g. SEC"
               maxLength={10}
             />
             {sodConflict && (
@@ -109,12 +91,12 @@ export default function PilotRail({ plan, onApprove, onReject, actionLoading }: 
             )}
           </div>
           <div className="reject-field">
-            <label htmlFor="reject-comment">Rejection Comment (required to reject)</label>
+            <label htmlFor="reject-comment">Rejection comment (required to reject)</label>
             <textarea
               id="reject-comment"
               value={rejectComment}
               onChange={(e) => setRejectComment(e.target.value)}
-              placeholder="Explain why this plan should not proceed..."
+              placeholder="Explain why this plan should not proceed…"
             />
           </div>
           <div className="action-buttons">
@@ -123,19 +105,16 @@ export default function PilotRail({ plan, onApprove, onReject, actionLoading }: 
               disabled={!canApprove || sodConflict}
               onClick={() => onApprove(initials.trim())}
             >
-              Approve Plan
+              Approve plan
             </button>
             <button
               className="btn-reject"
               disabled={!canReject || sodConflict}
               onClick={() => onReject(initials.trim(), rejectComment.trim())}
             >
-              Reject Plan
+              Reject plan
             </button>
           </div>
-          <p className="sod-note" style={{ marginTop: "0.75rem" }}>
-            On approve/reject, the requester is notified to re-run terraform apply.
-          </p>
         </div>
       )}
     </div>
