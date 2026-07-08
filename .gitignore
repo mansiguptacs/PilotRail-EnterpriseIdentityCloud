@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Node
+node_modules/
+dist/
+
+# Data (runtime state)
+backend/data/plans.json
+backend/data/audit_log.json
+backend/data/notifications.json
+
+# Terraform binary (downloaded locally)
+backend/bin/terraform
+
+# IDE
+.idea/
+.vscode/
+*.swp

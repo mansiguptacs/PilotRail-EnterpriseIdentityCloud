@@ -1,0 +1,43 @@
+# IAM / privileged access baseline — Saviynt-aligned policy pack
+# (Wildcard Action/Resource/Principal rules live in aws_baseline.yaml)
+
+policies:
+  - id: IAM-003
+    name: AdministratorAccess
+    category: identity_access
+    severity: critical
+    pattern: AdministratorAccess
+    message: AdministratorAccess managed policy grants full account control
+    remediation: Use scoped custom policies with least privilege
+
+  - id: IAM-004
+    name: IAM Wildcard
+    category: identity_access
+    severity: critical
+    pattern: 'iam:\*'
+    message: iam:* allows unrestricted IAM administration
+    remediation: Remove iam:* and scope to specific IAM actions
+
+  - id: IAM-006
+    name: PassRole Wildcard
+    category: identity_access
+    severity: high
+    pattern: 'iam:PassRole'
+    message: iam:PassRole can enable privilege escalation if combined with broad resources
+    remediation: Restrict PassRole to specific role ARNs and condition keys
+
+  - id: IAM-007
+    name: NotAction Bypass
+    category: identity_access
+    severity: high
+    pattern: NotAction
+    message: NotAction patterns can bypass intended deny controls
+    remediation: Prefer explicit Allow lists over NotAction exclusions
+
+  - id: IAM-008
+    name: Standing Admin Role
+    category: identity_access
+    severity: high
+    pattern: max_session_duration\s*=\s*43200
+    message: 12-hour session duration increases standing privilege exposure window
+    remediation: Use JIT access with shorter session durations (1-4 hours)

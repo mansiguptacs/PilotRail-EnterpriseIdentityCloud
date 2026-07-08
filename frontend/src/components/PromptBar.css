@@ -1,0 +1,45 @@
+.prompt-bar {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.prompt-bar form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.prompt-bar input {
+  flex: 1;
+  padding: 0.625rem 0.875rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
+.prompt-bar input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.prompt-bar button {
+  padding: 0.625rem 1.25rem;
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  color: white;
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+
+.prompt-bar button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.prompt-bar .hint {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}

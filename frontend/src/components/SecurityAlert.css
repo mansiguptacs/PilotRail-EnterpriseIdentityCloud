@@ -1,0 +1,123 @@
+.security-alert {
+  margin: 1rem 1.25rem;
+  padding: 1rem;
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-border);
+  border-radius: 8px;
+}
+
+.security-alert h3 {
+  color: #fca5a5;
+  font-size: 0.9375rem;
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.finding-sources {
+  display: flex;
+  gap: 0.375rem;
+}
+
+.source-tag {
+  font-size: 0.625rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.source-tag.rule {
+  background: #1e3a5f;
+  color: #93c5fd;
+}
+
+.source-tag.ai {
+  background: rgba(59, 130, 246, 0.2);
+  color: #93c5fd;
+  border: 1px solid #3b82f6;
+}
+
+.finding-header {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-bottom: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.finding-policy {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.finding-category {
+  font-size: 0.625rem;
+  padding: 0.0625rem 0.375rem;
+  background: var(--surface);
+  border-radius: 3px;
+  color: var(--text-muted);
+}
+
+.finding-match {
+  display: block;
+  margin: 0.375rem 0;
+  padding: 0.375rem 0.5rem;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: #fca5a5;
+}
+
+.finding-remediation {
+  font-size: 0.75rem;
+  color: #86efac;
+  margin-top: 0.25rem;
+}
+
+.security-alert ul {
+  list-style: none;
+}
+
+.security-alert li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgba(220, 38, 38, 0.3);
+  font-size: 0.8125rem;
+}
+
+.security-alert li:last-child {
+  border-bottom: none;
+}
+
+.finding-severity {
+  display: inline-block;
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  margin-right: 0.5rem;
+}
+
+.finding-severity.critical {
+  background: #7f1d1d;
+  color: #fca5a5;
+}
+
+.finding-severity.high {
+  background: #92400e;
+  color: #fcd34d;
+}
+
+.finding-severity.medium {
+  background: #1e3a5f;
+  color: #93c5fd;
+}
+
+.finding-line {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}

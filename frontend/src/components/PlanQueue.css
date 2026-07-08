@@ -1,0 +1,104 @@
+.plan-queue {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.plan-item {
+  padding: 0.875rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.plan-item:hover {
+  background: var(--surface-hover);
+}
+
+.plan-item.selected {
+  background: var(--surface-hover);
+  border-left: 3px solid var(--accent);
+}
+
+.plan-item-prompt {
+  font-size: 0.875rem;
+  margin-bottom: 0.375rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.state-badge {
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+}
+
+.state-badge.pending {
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--pending);
+}
+
+.state-badge.approved {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--approved);
+}
+
+.state-badge.auto-approved {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.source-badge {
+  font-size: 0.625rem;
+  padding: 0.125rem 0.375rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-muted);
+}
+
+.risk-badge {
+  font-size: 0.625rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.risk-badge.critical {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--rejected);
+}
+
+.risk-badge.high {
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--pending);
+}
+
+.risk-badge.medium,
+.risk-badge.low {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--approved);
+}
+
+.state-badge.rejected {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--rejected);
+}
+
+.warning-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--rejected);
+}

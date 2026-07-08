@@ -1,0 +1,99 @@
+# AWS Security Baseline — declarative policy pack (OPA/Sentinel-style)
+# Each rule is evaluated line-by-line against generated Terraform HCL.
+
+policies:
+  - id: NET-001
+    name: Open Ingress CIDR
+    category: network_exposure
+    severity: critical
+    pattern: '0\.0\.0\.0/0'
+    message: CIDR 0.0.0.0/0 allows inbound access from any IP on the internet
+    remediation: Restrict ingress to known corporate CIDR ranges or use a bastion host
+
+  - id: NET-002
+    name: Unrestricted Egress
+    category: network_exposure
+    severity: medium
+    pattern: 'cidr_blocks\s*=\s*\["0\.0\.0\.0/0"\]'
+    message: Egress rule permits traffic to any destination
+    remediation: Scope egress to required destinations only
+
+  - id: IAM-001
+    name: Wildcard Principal
+    category: identity_access
+    severity: critical
+    pattern: 'Principal\s*=\s*"\*"'
+    message: Wildcard principal grants access to all AWS accounts and anonymous users
+    remediation: Replace with specific IAM role ARNs or account principals
+
+  - id: IAM-002
+    name: Wildcard Action
+    category: identity_access
+    severity: critical
+    pattern: 'Action\s*=\s*"\*"'
+    message: Wildcard action grants all API permissions (privilege escalation)
+    remediation: Scope actions to the minimum required (e.g. s3:GetObject only)
+
+  - id: IAM-003
+    name: Wildcard Resource
+    category: identity_access
+    severity: critical
+    pattern: 'Resource\s*=\s*"\*"'
+    message: Wildcard resource grants access to all resources in the account
+    remediation: Restrict Resource to specific ARNs
+
+  - id: IAM-004
+    name: Admin Access Grant
+    category: identity_access
+    severity: critical
+    pattern: 'access_type\s*=\s*"admin"'
+    message: Standing admin access grant detected — requires human approval
+    remediation: Use scoped JIT access with time-bound elevation instead of admin grants
+
+  - id: S3-001
+    name: Public Read ACL
+    category: data_exposure
+    severity: high
+    pattern: 'acl\s*=\s*"public-read"'
+    message: S3 bucket ACL set to public-read exposes object listing and read access
+    remediation: Use private ACL with aws_s3_bucket_public_access_block enabled
+
+  - id: S3-002
+    name: Public Write ACL
+    category: data_exposure
+    severity: critical
+    pattern: 'acl\s*=\s*"public-read-write"'
+    message: S3 bucket ACL allows anonymous write access
+    remediation: Remove public-write ACL and enable public access block
+
+  - id: S3-003
+    name: Public Access Block Disabled
+    category: data_exposure
+    severity: high
+    pattern: 'block_public_acls\s*=\s*false'
+    message: Public ACL blocking is disabled on this S3 bucket
+    remediation: Set block_public_acls = true on aws_s3_bucket_public_access_block
+
+  - id: S3-004
+    name: Public Policy Block Disabled
+    category: data_exposure
+    severity: high
+    pattern: 'block_public_policy\s*=\s*false'
+    message: Public bucket policy blocking is disabled
+    remediation: Set block_public_policy = true
+
+  - id: RDS-001
+    name: Publicly Accessible Database
+    category: data_exposure
+    severity: critical
+    pattern: 'publicly_accessible\s*=\s*true'
+    message: Database instance is reachable from the public internet
+    remediation: Set publicly_accessible = false and place in private subnets
+
+  - id: ENC-001
+    name: Unencrypted Storage
+    category: encryption
+    severity: high
+    pattern: 'encrypted\s*=\s*false'
+    message: Storage resource has encryption disabled
+    remediation: Enable server-side encryption (encrypted = true or kms key)

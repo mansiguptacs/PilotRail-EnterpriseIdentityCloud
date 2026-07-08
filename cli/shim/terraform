@@ -1,0 +1,272 @@
+#!/usr/bin/env python3
+"""
+Pilot Rail terraform wrapper shim.
+Place cli/shim/ first on PATH so `terraform apply` is gated by policy.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+API_BASE = os.getenv("PILOT_API_BASE", "http://127.0.0.1:8000/api")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_TF = REPO_ROOT / "backend" / "bin" / "terraform"
+
+RED = "\033[91m"
+GREEN = "\033[92m"
+YELLOW = "\033[93m"
+BLUE = "\033[94m"
+RESET = "\033[0m"
+
+
+def _color(text: str, code: str) -> str:
+    if not sys.stdout.isatty():
+        return text
+    return f"{code}{text}{RESET}"
+
+
+def _http_json(method: str, url: str, payload: dict | None = None, timeout: float = 30) -> dict:
+    data = json.dumps(payload).encode() if payload is not None else None
+    req = urllib.request.Request(
+        url,
+        data=data,
+        method=method,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode()
+        try:
+            detail = json.loads(body).get("detail", body)
+        except json.JSONDecodeError:
+            detail = body
+        raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
+
+
+def normalize_plan_json(plan_json: str) -> str:
+    if not plan_json:
+        return ""
+    try:
+        data = json.loads(plan_json)
+    except json.JSONDecodeError:
+        return plan_json
+    stable = {
+        "resource_changes": data.get("resource_changes", []),
+        "output_changes": data.get("output_changes", []),
+    }
+    return json.dumps(stable, sort_keys=True, separators=(",", ":"))
+
+
+def compute_fingerprint(code: str, plan_json: str, workspace_path: str, requester: str) -> str:
+    payload = {
+        "code": code,
+        "plan_json": normalize_plan_json(plan_json),
+        "workspace_path": workspace_path,
+        "requester": requester.strip().lower(),
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def resolve_real_terraform() -> str:
+    env = os.getenv("PILOT_REAL_TERRAFORM", "").strip()
+    if env and Path(env).exists():
+        return env
+    if DEFAULT_TF.exists():
+        return str(DEFAULT_TF)
+    found = shutil.which("terraform")
+    shim_path = Path(__file__).resolve()
+    if found and Path(found).resolve() != shim_path:
+        return found
+    print(_color("pilot-rail: real terraform binary not found", RED), file=sys.stderr)
+    print("Set PILOT_REAL_TERRAFORM or run scripts/install-terraform.sh", file=sys.stderr)
+    sys.exit(1)
+
+
+def get_requester() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "config", "user.name"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return os.getenv("USER", os.getenv("USERNAME", "developer"))
+
+
+def collect_tf_code(cwd: Path) -> str:
+    parts: list[str] = []
+    for pattern in ("*.tf", "*.tf.json"):
+        for path in sorted(cwd.glob(pattern)):
+            parts.append(f"# --- {path.name} ---\n{path.read_text(encoding='utf-8')}")
+    return "\n\n".join(parts)
+
+
+def is_apply_command(args: list[str]) -> bool:
+    return bool(args) and args[0] == "apply"
+
+
+def run_real_terraform(tf_bin: str, args: list[str], cwd: Path) -> int:
+    result = subprocess.run([tf_bin, *args], cwd=cwd)
+    return result.returncode
+
+
+def submit_plan(
+    code: str,
+    plan_json: str,
+    requester: str,
+    fingerprint: str,
+    workspace_path: str,
+) -> dict:
+    return _http_json(
+        "POST",
+        f"{API_BASE}/plans",
+        {
+            "code": code,
+            "plan_json": plan_json,
+            "plan_fingerprint": fingerprint,
+            "workspace_path": workspace_path,
+            "requester": requester,
+            "source": "wrapper",
+            "prompt": f"terraform apply in {workspace_path}",
+        },
+    )
+
+
+def report_execution(plan_id: str, status: str, output: str, exit_code: int) -> None:
+    _http_json(
+        "POST",
+        f"{API_BASE}/plans/{plan_id}/execution",
+        {"status": status, "output": output, "exit_code": exit_code},
+    )
+
+
+def gate_apply(tf_bin: str, apply_args: list[str], cwd: Path) -> int:
+    requester = get_requester()
+    workspace_path = str(cwd.resolve())
+    plan_file = "pilot.tfplan"
+
+    print(_color("\n╔══════════════════════════════════════════════════╗", BLUE))
+    print(_color("║  PILOT RAIL APPLY GATE — evaluating plan...      ║", BLUE))
+    print(_color("╚══════════════════════════════════════════════════╝\n", BLUE))
+
+    plan_result = subprocess.run(
+        [tf_bin, "plan", "-out", plan_file, "-input=false"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+    if plan_result.returncode != 0:
+        print(plan_result.stdout)
+        print(plan_result.stderr, file=sys.stderr)
+        return plan_result.returncode
+
+    show_result = subprocess.run(
+        [tf_bin, "show", "-json", plan_file],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+    if show_result.returncode != 0:
+        print(show_result.stderr, file=sys.stderr)
+        return show_result.returncode
+
+    code = collect_tf_code(cwd)
+    plan_json = show_result.stdout
+    fingerprint = compute_fingerprint(code, plan_json, workspace_path, requester)
+
+    try:
+        plan = submit_plan(code, plan_json, requester, fingerprint, workspace_path)
+    except RuntimeError as exc:
+        print(_color(f"[pilot-rail] Failed to reach Pilot Rail API: {exc}", RED), file=sys.stderr)
+        return 1
+
+    plan_id = plan["id"]
+    state = plan["state"]
+    risk = plan.get("risk_tier", "unknown")
+    enforcement = plan.get("enforcement_level", "unknown")
+
+    print(_color(f"[pilot-rail] Plan {plan_id[:8]}... | risk: {risk} | enforcement: {enforcement}", BLUE))
+    print(_color(f"[pilot-rail] Decision: {state}", GREEN if state in ("AUTO_APPROVED", "APPROVED") else YELLOW))
+
+    if state == "AUTO_APPROVED" and risk in ("high", "critical"):
+        print(_color("[pilot-rail] ERROR: risk/policy mismatch — refusing to apply", RED))
+        return 1
+
+    if state == "PENDING_REVIEW":
+        findings = plan.get("findings", [])
+        if findings:
+            print(_color(f"[pilot-rail] {len(findings)} policy finding(s):", YELLOW))
+            for f in findings[:5]:
+                print(f"  [{f.get('policy_id')}] {f.get('term')} ({f.get('severity')})")
+        print(_color("\n[pilot-rail] BLOCKED — approval required.", RED))
+        print(_color(f"  Request ID: {plan_id}", BLUE))
+        print(_color("  Approver notified (mock: #security-approvals)", BLUE))
+        print(_color("  Re-run `terraform apply` after approval.", YELLOW))
+        print(_color("  Track status: http://127.0.0.1:5173\n", BLUE))
+        return 1
+
+    if state == "REJECTED":
+        reason = plan.get("reject_comment", "No reason provided")
+        reviewer = plan.get("reviewer_initials", "reviewer")
+        print(_color(f"\n[pilot-rail] REJECTED by {reviewer}: {reason}", RED))
+        print(_color("  Revise your Terraform and try again.\n", YELLOW))
+        return 1
+
+    if state not in ("APPROVED", "AUTO_APPROVED"):
+        print(_color(f"[pilot-rail] Unexpected state: {state}", RED))
+        return 1
+
+    if state == "APPROVED":
+        print(_color("\n[pilot-rail] Prior approval found — proceeding with apply...\n", GREEN))
+    else:
+        print(_color("\n[pilot-rail] Auto-approved — proceeding with apply...\n", GREEN))
+
+    apply_result = subprocess.run(
+        [tf_bin, "apply", "-input=false", plan_file],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+    output = (apply_result.stdout or "") + (apply_result.stderr or "")
+    print(apply_result.stdout)
+    if apply_result.stderr:
+        print(apply_result.stderr, file=sys.stderr)
+
+    status = "succeeded" if apply_result.returncode == 0 else "failed"
+    report_execution(plan_id, status, output[-8000:], apply_result.returncode)
+
+    if apply_result.returncode == 0:
+        print(_color("[pilot-rail] Apply completed successfully.", GREEN))
+    else:
+        print(_color("[pilot-rail] Apply failed.", RED))
+
+    return apply_result.returncode
+
+
+def main() -> int:
+    tf_bin = resolve_real_terraform()
+    args = sys.argv[1:]
+    cwd = Path.cwd()
+
+    if is_apply_command(args):
+        return gate_apply(tf_bin, args[1:], cwd)
+
+    return run_real_terraform(tf_bin, args, cwd)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

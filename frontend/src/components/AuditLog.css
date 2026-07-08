@@ -1,0 +1,46 @@
+.audit-log {
+  flex: 1;
+  overflow: auto;
+  padding: 1rem 1.5rem;
+}
+
+.audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.audit-table th {
+  text-align: left;
+  padding: 0.75rem;
+  border-bottom: 2px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.audit-table td {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.audit-table tr:hover td {
+  background: var(--surface-hover);
+}
+
+.action-approve {
+  color: var(--approved);
+  font-weight: 600;
+}
+
+.action-reject {
+  color: var(--rejected);
+  font-weight: 600;
+}
+
+.plan-id-cell {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}

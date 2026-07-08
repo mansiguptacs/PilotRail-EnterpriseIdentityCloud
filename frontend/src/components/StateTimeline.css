@@ -1,0 +1,96 @@
+.state-timeline {
+  margin: 1rem 1.25rem;
+  padding: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.state-timeline h4 {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 0.75rem;
+}
+
+.timeline-steps {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.timeline-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  position: relative;
+}
+
+.timeline-step::after {
+  content: "";
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  width: 100%;
+  height: 2px;
+  background: var(--border);
+  z-index: 0;
+}
+
+.timeline-step:last-child::after {
+  display: none;
+}
+
+.step-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: var(--bg);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.625rem;
+  font-weight: 700;
+}
+
+.timeline-step.active .step-dot {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+}
+
+.timeline-step.completed .step-dot {
+  border-color: var(--approved);
+  background: var(--approved);
+  color: white;
+}
+
+.timeline-step.rejected .step-dot {
+  border-color: var(--rejected);
+  background: var(--rejected);
+  color: white;
+}
+
+.timeline-step.auto-approved .step-dot {
+  border-color: #3b82f6;
+  background: #3b82f6;
+  color: white;
+}
+
+.step-label {
+  margin-top: 0.5rem;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.timeline-step.active .step-label,
+.timeline-step.completed .step-label,
+.timeline-step.rejected .step-label {
+  color: var(--text);
+  font-weight: 500;
+}
